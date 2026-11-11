@@ -1,0 +1,23 @@
+name: Habanos 24/7 Scanner
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code laden
+        uses: actions/checkout@v4
+      - name: Node.js starten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 18 Zigarren-Shops scannen
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: node scraper.js
