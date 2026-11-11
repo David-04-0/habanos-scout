@@ -1,4 +1,4 @@
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').trim();
 const NTFY_TOPIC = (process.env.NTFY_TOPIC || '').trim();
 
