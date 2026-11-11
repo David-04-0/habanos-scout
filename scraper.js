@@ -32,6 +32,16 @@ const BRANDS = [
   'La Gloria Cubana', 'Quintero', 'José L. Piedra', 'Jose L. Piedra', 'Belinda', 'Troya', 'Cabañas', 'Guantanamera'
 ];
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function sbFetch(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -39,7 +49,7 @@ async function sbFetch(path, options = {}) {
     'Authorization': SUPABASE_KEY.startsWith('eyJ') ? `Bearer ${SUPABASE_KEY}` : SUPABASE_KEY,
     ...(options.headers || {})
   };
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers });
+  const res = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers }, 10000);
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`Supabase Fehler (${res.status}): ${txt}`);
@@ -82,11 +92,11 @@ async function sendPush(item, isRestock) {
   const title = `[${tag}] ${item.brand}: ${item.title}`;
   const msg = `${item.shop_name} • ${item.price} (${item.format})\nDirektlink: ${item.url}`;
   try {
-    await fetch(`https://ntfy.sh/${encodeURIComponent(NTFY_TOPIC)}`, {
+    await fetchWithTimeout(`https://ntfy.sh/${encodeURIComponent(NTFY_TOPIC)}`, {
       method: 'POST',
       headers: { 'Title': title, 'Priority': 'high', 'Click': item.url },
       body: msg
-    });
+    }, 5000);
   } catch (e) {
     console.error('Push-Fehler:', e.message);
   }
@@ -94,9 +104,9 @@ async function sendPush(item, isRestock) {
 
 async function scrapeShop(shop) {
   const items = [];
-  const res = await fetch(shop.url, {
+  const res = await fetchWithTimeout(shop.url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36' }
-  });
+  }, 8000);
   if (!res.ok) return items;
 
   if (shop.url.includes('products.json')) {
@@ -168,11 +178,11 @@ async function scrapeShop(shop) {
 }
 
 async function run() {
-  console.log('Starte Habanos Scout 24/7 Scan...');
+  console.log('Starte Habanos Scout 24/7 Turbo-Scan...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) {
     console.log('Initialisiere alle 18 Zigarren-Shops in Supabase...');
-    await sbFetch('shops', { method: 'POST', body: JSON.stringify(DEFAULT_SHOPS) });
+    await sbFetch('shops', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(DEFAULT_SHOPS) });
     shops = DEFAULT_SHOPS;
   }
 
@@ -193,23 +203,46 @@ async function run() {
     try {
       console.log(`Prüfe ${shop.name}...`);
       const foundItems = await scrapeShop(shop);
+      const toUpsert = [];
+      let pushCount = 0;
+
       for (const item of foundItems) {
         const prev = existingMap.get(item.id);
         if (!prev) {
           const dropType = item.edition_type !== 'Standard' ? 'NEUERSCHEINUNG' : 'NEU GELISTET';
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
-          await sbFetch('releases', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(payload) });
+          toUpsert.push(payload);
           existingMap.set(item.id, payload);
-          if (!isFirstInit) await sendPush(payload, false);
+          if (!isFirstInit && pushCount < 5) {
+            await sendPush(payload, false);
+            pushCount++;
+          }
         } else if (prev.in_stock === false) {
           const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
-          await sbFetch(`releases?id=eq.${encodeURIComponent(item.id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
-          await sendPush(payload, true);
+          toUpsert.push(payload);
+          existingMap.set(item.id, payload);
+          if (pushCount < 5) {
+            await sendPush(payload, true);
+            pushCount++;
+          }
         }
       }
-      await sbFetch(`shops?id=eq.${shop.id}`, { method: 'PATCH', body: JSON.stringify({ last_checked: now.toISOString() }) });
+
+      if (toUpsert.length > 0) {
+        await sbFetch('releases', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates' },
+          body: JSON.stringify(toUpsert)
+        });
+        console.log(`  -> ${toUpsert.length} Zigarren gespeichert.`);
+      }
+
+      await sbFetch(`shops?id=eq.${shop.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ last_checked: now.toISOString() })
+      });
     } catch (err) {
-      console.error(`Fehler bei ${shop.name}:`, err.message);
+      console.log(`  -> Überspringe ${shop.name} (${err.name === 'AbortError' ? 'Timeout > 8s' : err.message})`);
     }
   }
   console.log('Scan erfolgreich abgeschlossen.');
