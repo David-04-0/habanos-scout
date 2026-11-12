@@ -32,14 +32,13 @@ const BRANDS = [
   'La Gloria Cubana', 'Quintero', 'José L. Piedra', 'Jose L. Piedra', 'Belinda', 'Troya', 'Cabañas', 'Guantanamera'
 ];
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+// Hartes Zeitlimit für komplette Funktionen (inkl. langsamem Text-Download)
+function withHardTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout nach ${ms}ms (${label})`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function sbFetch(path, options = {}) {
@@ -49,28 +48,20 @@ async function sbFetch(path, options = {}) {
     'Authorization': SUPABASE_KEY.startsWith('eyJ') ? `Bearer ${SUPABASE_KEY}` : SUPABASE_KEY,
     ...(options.headers || {})
   };
-  const res = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers }, 10000);
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Supabase Fehler (${res.status}): ${txt}`);
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : [];
+  return withHardTimeout((async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Supabase (${res.status}): ${text}`);
+    return text ? JSON.parse(text) : [];
+  })(), 8000, 'Supabase');
 }
 
 function detectBrand(title) {
   const lower = title.toLowerCase();
   for (const b of BRANDS) {
     if (lower.includes(b.toLowerCase())) {
-      if (b === 'Partagas') return 'Partagás';
-      if (b === 'Bolivar') return 'Bolívar';
-      if (b === 'Ramon Allones') return 'Ramón Allones';
-      if (b === 'San Cristobal') return 'San Cristóbal';
-      if (b === 'Juan Lopez') return 'Juan López';
-      if (b === 'Por Larranaga') return 'Por Larrañaga';
-      if (b === 'Diplomaticos') return 'Diplomáticos';
-      if (b === 'Jose L. Piedra') return 'José L. Piedra';
-      return b;
+      const map = { 'Partagas': 'Partagás', 'Bolivar': 'Bolívar', 'Ramon Allones': 'Ramón Allones', 'San Cristobal': 'San Cristóbal', 'Juan Lopez': 'Juan López', 'Por Larranaga': 'Por Larrañaga', 'Diplomaticos': 'Diplomáticos', 'Jose L. Piedra': 'José L. Piedra' };
+      return map[b] || b;
     }
   }
   return null;
@@ -92,21 +83,19 @@ async function sendPush(item, isRestock) {
   const title = `[${tag}] ${item.brand}: ${item.title}`;
   const msg = `${item.shop_name} • ${item.price} (${item.format})\nDirektlink: ${item.url}`;
   try {
-    await fetchWithTimeout(`https://ntfy.sh/${encodeURIComponent(NTFY_TOPIC)}`, {
+    await withHardTimeout(fetch(`https://ntfy.sh/${encodeURIComponent(NTFY_TOPIC)}`, {
       method: 'POST',
       headers: { 'Title': title, 'Priority': 'high', 'Click': item.url },
       body: msg
-    }, 5000);
-  } catch (e) {
-    console.error('Push-Fehler:', e.message);
-  }
+    }), 4000, 'ntfy');
+  } catch (e) {}
 }
 
-async function scrapeShop(shop) {
+async function scrapeShopRaw(shop) {
   const items = [];
-  const res = await fetchWithTimeout(shop.url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36' }
-  }, 8000);
+  const res = await fetch(shop.url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36' }
+  });
   if (!res.ok) return items;
 
   if (shop.url.includes('products.json')) {
@@ -145,7 +134,6 @@ async function scrapeShop(shop) {
     const rawHref = match[1];
     const cleanText = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (cleanText.length < 6 || cleanText.length > 150) continue;
-
     const brand = detectBrand(cleanText);
     if (!brand) continue;
 
@@ -154,12 +142,9 @@ async function scrapeShop(shop) {
 
     const idx = match.index;
     const context = html.slice(Math.max(0, idx - 350), Math.min(html.length, idx + 950));
-    const soldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|derzeit\s+nicht\s+verf/i.test(context);
-    if (soldOut) continue;
+    if (/ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|derzeit\s+nicht\s+verf/i.test(context)) continue;
 
     const priceMatch = context.match(/(\d{1,4}[.,]\d{2})\s*(?:€|&euro;|EUR)/i);
-    const price = priceMatch ? `${priceMatch[1].replace('.', ',')} €` : 'Auf Lager';
-
     seen.add(fullUrl);
     items.push({
       id: `${shop.id}-${Buffer.from(fullUrl).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(-28)}`,
@@ -167,7 +152,7 @@ async function scrapeShop(shop) {
       shop_name: shop.name,
       title: cleanText,
       brand,
-      price,
+      price: priceMatch ? `${priceMatch[1].replace('.', ',')} €` : 'Auf Lager',
       format: /kiste|box|25er|10er|50er|cabinet/i.test(cleanText + ' ' + context) ? 'Kiste / Box' : 'Einzel / Verfügbar',
       edition_type: detectEdition(cleanText),
       in_stock: true,
@@ -178,10 +163,10 @@ async function scrapeShop(shop) {
 }
 
 async function run() {
-  console.log('Starte Habanos Scout 24/7 Turbo-Scan...');
+  const startTime = Date.now();
+  console.log('Starte Habanos Scout Parallel-Highspeed-Scan...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) {
-    console.log('Initialisiere alle 18 Zigarren-Shops in Supabase...');
     await sbFetch('shops', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(DEFAULT_SHOPS) });
     shops = DEFAULT_SHOPS;
   }
@@ -193,16 +178,16 @@ async function run() {
   const weekday = (now.getDay() + 6) % 7;
   const hour = now.getHours();
 
-  for (const shop of shops) {
-    if (shop.active === false) continue;
-    if (shop.last_checked) {
-      const diffMin = (now - new Date(shop.last_checked)) / 60000;
-      if (diffMin < (shop.interval_min || 5) - 0.5) continue;
-    }
+  const dueShops = shops.filter(s => {
+    if (s.active === false) return false;
+    if (!s.last_checked) return true;
+    return ((now - new Date(s.last_checked)) / 60000) >= ((s.interval_min || 5) - 0.5);
+  });
 
+  // Alle fälligen Shops GLEICHZEITIG mit hartem 7-Sekunden-Limit prüfen
+  await Promise.allSettled(dueShops.map(async (shop) => {
     try {
-      console.log(`Prüfe ${shop.name}...`);
-      const foundItems = await scrapeShop(shop);
+      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 7000, shop.name);
       const toUpsert = [];
       let pushCount = 0;
 
@@ -213,39 +198,27 @@ async function run() {
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
-          if (!isFirstInit && pushCount < 5) {
-            await sendPush(payload, false);
-            pushCount++;
-          }
+          if (!isFirstInit && pushCount < 3) { await sendPush(payload, false); pushCount++; }
         } else if (prev.in_stock === false) {
           const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
-          if (pushCount < 5) {
-            await sendPush(payload, true);
-            pushCount++;
-          }
+          if (pushCount < 3) { await sendPush(payload, true); pushCount++; }
         }
       }
 
       if (toUpsert.length > 0) {
-        await sbFetch('releases', {
-          method: 'POST',
-          headers: { 'Prefer': 'resolution=merge-duplicates' },
-          body: JSON.stringify(toUpsert)
-        });
-        console.log(`  -> ${toUpsert.length} Zigarren gespeichert.`);
+        await sbFetch('releases', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(toUpsert) });
       }
-
-      await sbFetch(`shops?id=eq.${shop.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ last_checked: now.toISOString() })
-      });
+      await sbFetch(`shops?id=eq.${shop.id}`, { method: 'PATCH', body: JSON.stringify({ last_checked: now.toISOString() }) });
+      console.log(`✓ ${shop.name}: ${foundItems.length} geprüft (${toUpsert.length} neu)`);
     } catch (err) {
-      console.log(`  -> Überspringe ${shop.name} (${err.name === 'AbortError' ? 'Timeout > 8s' : err.message})`);
+      console.log(`✗ ${shop.name} übersprungen: ${err.message}`);
     }
-  }
-  console.log('Scan erfolgreich abgeschlossen.');
+  }));
+
+  console.log(`Fertig in ${((Date.now() - startTime) / 1000).toFixed(1)} Sekunden.`);
+  process.exit(0);
 }
 
 run();
