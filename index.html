@@ -1,1 +1,323 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Habanos Scout</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Habanos Scout" />
+  <meta name="theme-color" content="#120d0a" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%2318110d'/><rect x='12' y='12' width='156' height='156' rx='32' fill='none' stroke='%23d4af37' stroke-width='4'/><text x='90' y='118' font-size='84' text-anchor='middle' fill='%23d4af37' font-family='Georgia,serif' font-weight='bold'>H</text></svg>" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #120d0a; color: #f5ebe6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="min-h-screen pb-24 select-none">
+  <header class="sticky top-0 z-30 bg-[#120d0a]/95 backdrop-blur-md border-b border-[#3a281f] px-4 pt-3 pb-3">
+    <div class="max-w-lg mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-[#d4af37] to-[#8a5a2b] flex items-center justify-center text-[#120d0a] font-serif font-bold text-xl shadow">H</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base tracking-wide text-[#f7ede4]">HABANOS SCOUT</h1>
+            <span id="liveBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-700/50 font-semibold">LIVE</span>
+          </div>
+          <p id="statusSub" class="text-[11px] text-[#a88d7a]">Verbinde mit Supabase...</p>
+        </div>
+      </div>
+      <button onclick="loadData()" class="px-3 py-1.5 rounded-xl bg-[#241812] border border-[#4a3326] text-xs font-medium text-[#e6ccb2] active:scale-95">↻ Aktualisieren</button>
+    </div>
+  </header>
 
+  <main class="max-w-lg mx-auto px-4 pt-3">
+    <!-- TAB 1: NEUHEITEN & BESTAND -->
+    <section id="tab-releases" class="space-y-3">
+      <div class="grid grid-cols-2 bg-[#1c130e] p-1 rounded-xl border border-[#3a281f]">
+        <button id="subTabNew" onclick="setSubTab('new')" class="py-2 rounded-lg text-xs font-semibold bg-[#d4af37] text-[#120d0a]">Neuheiten (Drops)</button>
+        <button id="subTabAll" onclick="setSubTab('all')" class="py-2 rounded-lg text-xs font-semibold text-[#b89c88]">Aktuell verfügbar</button>
+      </div>
+
+      <div class="flex gap-2">
+        <input id="searchInput" oninput="renderReleases()" type="text" placeholder="Marke, Vitola, Limitada suchen..." class="flex-1 bg-[#1c130e] border border-[#3a281f] rounded-xl px-3 py-2 text-xs text-[#f5ebe6] placeholder-[#7d6555] focus:outline-none focus:border-[#d4af37]" />
+        <select id="sortSelect" onchange="renderReleases()" class="bg-[#1c130e] border border-[#3a281f] rounded-xl px-2.5 py-2 text-xs text-[#e6ccb2]">
+          <option value="newest">Neueste zuerst ↓</option>
+          <option value="oldest">Älteste zuerst ↑</option>
+          <option value="priceAsc">Preis aufsteigend</option>
+          <option value="priceDesc">Preis absteigend</option>
+        </select>
+      </div>
+
+      <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" id="editionBar">
+        <button onclick="setEditionFilter('ALL')" data-ed="ALL" class="ed-btn shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#d4af37] text-[#120d0a]">Alle</button>
+        <button onclick="setEditionFilter('RARE')" data-ed="RARE" class="ed-btn shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#211712] text-[#d4af37] border border-[#4a3427]">★ Raritäten & Limitadas</button>
+        <button onclick="setEditionFilter('RESTOCK')" data-ed="RESTOCK" class="ed-btn shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#211712] text-[#c7b2a3] border border-[#3a281f]">↻ Restocks</button>
+        <button onclick="setEditionFilter('BOX')" data-ed="BOX" class="ed-btn shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#211712] text-[#c7b2a3] border border-[#3a281f]">📦 Nur Kisten</button>
+      </div>
+
+      <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" id="brandBar"></div>
+
+      <div id="releasesList" class="space-y-2.5 pt-1"></div>
+    </section>
+
+    <!-- TAB 2: SHOPS -->
+    <section id="tab-shops" class="hidden space-y-3">
+      <div class="bg-[#1c130e] border border-[#3a281f] rounded-2xl p-3.5">
+        <h2 class="text-sm font-bold text-[#f5ebe6]">18 Überwachte Zigarren-Fachhändler</h2>
+        <p class="text-[11px] text-[#a88d7a] mt-0.5">Änderungen am Minuten-Takt werden direkt in deiner Supabase-Datenbank gespeichert.</p>
+      </div>
+      <div id="shopsList" class="space-y-2.5"></div>
+    </section>
+
+    <!-- TAB 3: ANALYSE -->
+    <section id="tab-analytics" class="hidden space-y-3">
+      <div class="bg-[#1c130e] border border-[#3a281f] rounded-2xl p-3.5">
+        <h2 class="text-sm font-bold text-[#f5ebe6]">Drop-Analyse nach Wochentag & Uhrzeit</h2>
+        <p class="text-[11px] text-[#a88d7a] mt-0.5">Wann stellen deine Shops bevorzugt neue Kubaner online?</p>
+        <select id="analyticsShopFilter" onchange="renderAnalytics()" class="mt-2.5 w-full bg-[#120d0a] border border-[#3a281f] rounded-xl px-3 py-2 text-xs text-[#e6ccb2]">
+          <option value="ALL">Alle 18 Shops zusammen</option>
+        </select>
+      </div>
+      <div id="analyticsContent" class="space-y-3"></div>
+    </section>
+  </main>
+
+  <!-- UNTERE NAVIGATION -->
+  <nav class="fixed bottom-0 inset-x-0 z-40 bg-[#140e0b]/95 backdrop-blur-md border-t border-[#3a281f] pb-safe">
+    <div class="max-w-lg mx-auto grid grid-cols-3 py-2">
+      <button onclick="switchTab('releases')" id="nav-releases" class="flex flex-col items-center gap-0.5 text-[#d4af37]">
+        <span class="text-lg">🔥</span>
+        <span class="text-[11px] font-semibold">Neuheiten</span>
+      </button>
+      <button onclick="switchTab('shops')" id="nav-shops" class="flex flex-col items-center gap-0.5 text-[#8c7362]">
+        <span class="text-lg">🏪</span>
+        <span class="text-[11px] font-semibold">Shops (18)</span>
+      </button>
+      <button onclick="switchTab('analytics')" id="nav-analytics" class="flex flex-col items-center gap-0.5 text-[#8c7362]">
+        <span class="text-lg">📊</span>
+        <span class="text-[11px] font-semibold">Analyse</span>
+      </button>
+    </div>
+  </nav>
+
+  <script>
+    const SUPABASE_URL = "https://crzdbacjvgpcrrlugeso.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_zvw59UVzTTxEh9cneHP4CQ_EKyGilzm";
+
+    const BRANDS = ["Alle Marken","Cohiba","Montecristo","Partagás","Romeo y Julieta","Hoyo de Monterrey","H. Upmann","Trinidad","Bolívar","Punch","Ramón Allones","Quai d'Orsay","Vegas Robaina","Cuaba","San Cristóbal","Fonseca","Juan López","Por Larrañaga","Rafael González","Saint Luis Rey","Sancho Panza","Vegueros","Diplomáticos","El Rey del Mundo","La Gloria Cubana","Quintero","José L. Piedra","Belinda","Troya"];
+    const WEEKDAYS = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+
+    let releases = [];
+    let shops = [];
+    let currentTab = "releases";
+    let subTab = "new";
+    let selectedBrand = "Alle Marken";
+    let editionFilter = "ALL";
+
+    async function sbRequest(path, options = {}) {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_KEY,
+          ...(options.headers || {})
+        }
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const txt = await res.text();
+      return txt ? JSON.parse(txt) : [];
+    }
+
+    function renderBrandBar() {
+      const bar = document.getElementById("brandBar");
+      bar.innerHTML = BRANDS.map(b => `
+        <button onclick="selectBrand('${b.replace(/'/g, "\\'")}')" class="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium ${selectedBrand === b ? 'bg-[#d4af37] text-[#120d0a]' : 'bg-[#1c130e] text-[#c7b2a3] border border-[#3a281f]'}">${b}</button>
+      `).join("");
+    }
+
+    function selectBrand(b) { selectedBrand = b; renderBrandBar(); renderReleases(); }
+    function setEditionFilter(ed) {
+      editionFilter = ed;
+      document.querySelectorAll(".ed-btn").forEach(btn => {
+        btn.className = btn.dataset.ed === ed
+          ? "ed-btn shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#d4af37] text-[#120d0a]"
+          : "ed-btn shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#211712] text-[#c7b2a3] border border-[#3a281f]";
+      });
+      renderReleases();
+    }
+
+    function setSubTab(st) {
+      subTab = st;
+      document.getElementById("subTabNew").className = st === "new" ? "py-2 rounded-lg text-xs font-semibold bg-[#d4af37] text-[#120d0a]" : "py-2 rounded-lg text-xs font-semibold text-[#b89c88]";
+      document.getElementById("subTabAll").className = st === "all" ? "py-2 rounded-lg text-xs font-semibold bg-[#d4af37] text-[#120d0a]" : "py-2 rounded-lg text-xs font-semibold text-[#b89c88]";
+      renderReleases();
+    }
+
+    function switchTab(t) {
+      currentTab = t;
+      ["releases","shops","analytics"].forEach(id => {
+        document.getElementById(`tab-${id}`).classList.toggle("hidden", id !== t);
+        document.getElementById(`nav-${id}`).className = id === t ? "flex flex-col items-center gap-0.5 text-[#d4af37]" : "flex flex-col items-center gap-0.5 text-[#8c7362]";
+      });
+      if (t === "shops") renderShops();
+      if (t === "analytics") renderAnalytics();
+    }
+
+    function parsePrice(p) {
+      if (!p) return 999999;
+      const m = String(p).replace(".", "").match(/(\d+[.,]?\d*)/);
+      return m ? parseFloat(m[1].replace(",", ".")) : 999999;
+    }
+
+    function renderReleases() {
+      const q = (document.getElementById("searchInput").value || "").toLowerCase();
+      const sort = document.getElementById("sortSelect").value;
+      const now = Date.now();
+
+      let list = releases.filter(r => r.in_stock !== false);
+      if (subTab === "new") {
+        list = list.filter(r => !r.found_at || (now - new Date(r.found_at).getTime()) <= 72 * 3600 * 1000);
+      }
+      if (selectedBrand !== "Alle Marken") {
+        list = list.filter(r => (r.brand || "").toLowerCase() === selectedBrand.toLowerCase() || (r.title || "").toLowerCase().includes(selectedBrand.toLowerCase()));
+      }
+      if (editionFilter === "RARE") list = list.filter(r => r.edition_type && r.edition_type !== "Standard");
+      if (editionFilter === "RESTOCK") list = list.filter(r => r.drop_type === "RESTOCK");
+      if (editionFilter === "BOX") list = list.filter(r => /kiste|box|cabinet/i.test((r.format || "") + " " + (r.title || "")));
+      if (q) list = list.filter(r => ((r.title || "") + " " + (r.shop_name || "") + " " + (r.brand || "")).toLowerCase().includes(q));
+
+      list.sort((a, b) => {
+        if (sort === "newest") return new Date(b.found_at || 0) - new Date(a.found_at || 0);
+        if (sort === "oldest") return new Date(a.found_at || 0) - new Date(b.found_at || 0);
+        if (sort === "priceAsc") return parsePrice(a.price) - parsePrice(b.price);
+        if (sort === "priceDesc") return parsePrice(b.price) - parsePrice(a.price);
+        return 0;
+      });
+
+      const container = document.getElementById("releasesList");
+      if (list.length === 0) {
+        container.innerHTML = `<div class="bg-[#1c130e] border border-[#3a281f] rounded-2xl p-6 text-center text-xs text-[#a88d7a]">Keine Zigarren für diesen Filter gefunden.</div>`;
+        return;
+      }
+
+      container.innerHTML = list.slice(0, 150).map(r => {
+        const d = r.found_at ? new Date(r.found_at) : new Date();
+        const timeStr = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+        const dateStr = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+        const isRare = r.edition_type && r.edition_type !== "Standard";
+        return `
+          <div class="bg-[#1c130e] border ${isRare ? 'border-[#d4af37]' : 'border-[#3a281f]'} rounded-2xl p-3.5 space-y-2">
+            <div class="flex items-center justify-between gap-2 text-[10px]">
+              <span class="px-2 py-0.5 rounded-md bg-[#2b1d15] text-[#d4af37] font-semibold">${r.shop_name || r.shop_id}</span>
+              <span class="text-[#9c8270]">${dateStr} • ${timeStr} Uhr</span>
+            </div>
+            <div class="font-bold text-sm text-[#f7ede4] leading-snug">${r.title}</div>
+            <div class="flex items-center justify-between pt-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-sm font-extrabold text-[#d4af37]">${r.price || 'Auf Lager'}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded bg-[#261a13] text-[#c7b2a3]">${r.format || 'Verfügbar'}</span>
+                ${isRare ? `<span class="text-[10px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700/50">★ ${r.edition_type}</span>` : ''}
+              </div>
+              <a href="${r.url}" target="_blank" class="px-3 py-1.5 rounded-xl bg-[#d4af37] text-[#120d0a] text-xs font-bold">Zum Shop →</a>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function updateInterval(shopId, val) {
+      const minutes = parseInt(val, 10);
+      const s = shops.find(x => x.id === shopId);
+      if (s) s.interval_min = minutes;
+      renderShops();
+      try {
+        await sbRequest(`shops?id=eq.${shopId}`, { method: "PATCH", body: JSON.stringify({ interval_min: minutes }) });
+      } catch (e) {}
+    }
+
+    function renderShops() {
+      const container = document.getElementById("shopsList");
+      container.innerHTML = shops.map(s => `
+        <div class="bg-[#1c130e] border border-[#3a281f] rounded-2xl p-3.5 space-y-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-bold text-sm text-[#f7ede4]">${s.name}</div>
+              <div class="text-[10px] text-[#8c7362] truncate max-w-[230px]">${s.url}</div>
+            </div>
+            <span class="px-2.5 py-1 rounded-lg bg-[#2b1d15] text-[#d4af37] text-xs font-bold">Alle ${s.interval_min || 5} Min.</span>
+          </div>
+          <input type="range" min="1" max="60" value="${s.interval_min || 5}" onchange="updateInterval('${s.id}', this.value)" class="w-full accent-[#d4af37]" />
+        </div>
+      `).join("");
+    }
+
+    function renderAnalytics() {
+      const sel = document.getElementById("analyticsShopFilter");
+      if (sel.options.length === 1 && shops.length > 0) {
+        shops.forEach(s => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.textContent = s.name;
+          sel.appendChild(opt);
+        });
+      }
+      const filterShop = sel.value;
+      const filtered = filterShop === "ALL" ? releases : releases.filter(r => r.shop_id === filterShop);
+      const dayCounts = [0,0,0,0,0,0,0];
+      const hourCounts = {};
+      filtered.forEach(r => {
+        const d = r.found_at ? new Date(r.found_at) : new Date();
+        const wd = typeof r.weekday === "number" ? r.weekday : (d.getDay() + 6) % 7;
+        const hr = typeof r.hour === "number" ? r.hour : d.getHours();
+        dayCounts[wd] = (dayCounts[wd] || 0) + 1;
+        hourCounts[hr] = (hourCounts[hr] || 0) + 1;
+      });
+      const maxDay = Math.max(1, ...dayCounts);
+      const topHour = Object.entries(hourCounts).sort((a,b) => b[1] - a[1])[0];
+
+      document.getElementById("analyticsContent").innerHTML = `
+        <div class="bg-[#1c130e] border border-[#3a281f] rounded-2xl p-4 space-y-3">
+          <div class="text-xs font-bold text-[#d4af37]">Veröffentlichungen nach Wochentag (${filtered.length} Erfassungen)</div>
+          <div class="grid grid-cols-7 gap-1.5 items-end h-28 pt-4">
+            ${WEEKDAYS.map((w, i) => `
+              <div class="flex flex-col items-center gap-1">
+                <span class="text-[10px] text-[#c7b2a3]">${dayCounts[i]}</span>
+                <div class="w-full bg-[#d4af37] rounded-t" style="height:${Math.max(6, Math.round((dayCounts[i]/maxDay)*70))}px"></div>
+                <span class="text-[10px] font-semibold text-[#a88d7a]">${w}</span>
+              </div>
+            `).join("")}
+          </div>
+          <div class="pt-2 border-t border-[#3a281f] text-xs text-[#e6ccb2]">
+            Beste Uhrzeit: <strong class="text-[#d4af37]">${topHour ? `${topHour[0]}:00 – ${topHour[0]}:59 Uhr (${topHour[1]} Treffer)` : 'Noch keine Daten'}</strong>
+          </div>
+        </div>
+      `;
+    }
+
+    async function loadData() {
+      try {
+        const [relData, shopData] = await Promise.all([
+          sbRequest("releases?select=*&order=found_at.desc&limit=500"),
+          sbRequest("shops?select=*&order=name.asc")
+        ]);
+        releases = relData || [];
+        shops = shopData || [];
+        document.getElementById("liveBadge").textContent = `LIVE • ${releases.length} ZIGARREN`;
+        document.getElementById("statusSub").textContent = `18 Shops aktiv • Zuletzt geladen: ${new Date().toLocaleTimeString("de-DE")}`;
+        renderReleases();
+        if (currentTab === "shops") renderShops();
+        if (currentTab === "analytics") renderAnalytics();
+      } catch (err) {
+        document.getElementById("statusSub").textContent = "Verbindungsfehler: " + err.message;
+      }
+    }
+
+    renderBrandBar();
+    loadData();
+    setInterval(loadData, 30000);
+  </script>
+</body>
+</html>
