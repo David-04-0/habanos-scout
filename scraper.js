@@ -92,18 +92,26 @@ async function sendPush(item, isRestock) {
 
 async function scrapeShopRaw(shop) {
   const items = [];
-  const res = await fetch(shop.url, {
-    headers: { 
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'de-DE,de;q=0.9',
-      'Cookie': 'age_check=1; age-accepted=1; cb-enabled=accepted;' // Umgeht Wolsdorff & Co. Altersprüfungen
-    }
-  });
+  
+  // Clean Headers (ohne verdächtige Cookies, um 403/404 Firewalls zu umgehen)
+  const fetchHeaders = { 
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+  };
+
+  // Nur Wolsdorff bekommt den Alters-Cookie
+  if (shop.id === 'wolsdorff') {
+    fetchHeaders['Cookie'] = 'age_check=1; age-accepted=1;';
+  }
+  // Herzog bekommt Safari-Tarnkappe gegen "fetch failed"
+  if (shop.id.includes('herzog')) {
+    fetchHeaders['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+  }
+
+  const res = await fetch(shop.url, { headers: fetchHeaders });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   if (shop.url.includes('products.json')) {
-    // Gleiche JSON Logik wie immer...
     const data = await res.json();
     for (const p of (data.products || [])) {
       const brand = detectBrand(p.title);
@@ -128,14 +136,15 @@ async function scrapeShopRaw(shop) {
   let html = await res.text();
   const baseOrigin = new URL(shop.url).origin;
   
+  // Zerstöre Menüs, Header und Footer
   html = html.replace(/<header[\s\S]*?<\/header>/gi, '')
              .replace(/<nav[\s\S]*?<\/nav>/gi, '')
              .replace(/<footer[\s\S]*?<\/footer>/gi, '')
              .replace(/<aside[\s\S]*?<\/aside>/gi, '');
 
-  // DER BLOCK-PARSER: Zerschneidet das Raster in völlig isolierte Produkt-Boxen!
+  // DER BLOCK-PARSER
   let blocks = html.split(/(?=<div[^>]*class=["'][^"']*(?:product|article|item|card|listing-box|product-wrapper|col-)[^"']*["'])/i);
-  if (blocks.length < 5) blocks = html.split(/(?=<a\s)/i); // Fallback
+  if (blocks.length < 5) blocks = html.split(/(?=<a\s)/i); 
 
   const seen = new Set();
 
@@ -157,8 +166,7 @@ async function scrapeShopRaw(shop) {
     const brand = detectBrand(cleanContext);
     if (!brand) continue;
 
-    // Erweitertes, extrem strenges Ausverkauft-Wörterbuch (isoliert auf DIESEN Block)
-    const isSoldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht\s+verf|momentan\s+nicht|zurzeit\s+nicht|nicht\s+verfügbar|nicht\s+bestellbar|wird\s+nachbestellt|status[\s_-]*red|Ampel[\s_-]*rot/i.test(cleanContext);
+    const isSoldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht\s+verf|momentan\s+nicht|zurzeit\s+nicht|nicht\s+verfügbar|nicht\s+bestellbar/i.test(cleanContext);
     if (isSoldOut) continue;
 
     let title = cleanContext.substring(0, 130);
@@ -184,7 +192,7 @@ async function scrapeShopRaw(shop) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('Starte Habanos Scout Deep-Scan (Block-Parser)...');
+  console.log('Starte Habanos Scout Deep-Scan (Clean Connection Mode)...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) shops = DEFAULT_SHOPS;
 
@@ -208,7 +216,6 @@ async function run() {
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
-          // Schutz gegen Spam bei der Ersteinrichtung
           if (!isFirstInit && pushCount < 3) { await sendPush(payload, false); pushCount++; }
         } else if (prev.in_stock === false) {
           const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
