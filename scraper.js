@@ -32,11 +32,10 @@ const BRANDS = [
   'La Gloria Cubana', 'Quintero', 'José L. Piedra', 'Jose L. Piedra', 'Belinda', 'Troya', 'Cabañas', 'Guantanamera'
 ];
 
-// Hartes Zeitlimit für komplette Funktionen (inkl. langsamem Text-Download)
 function withHardTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Timeout nach ${ms}ms (${label})`)), ms);
+    timer = setTimeout(() => reject(new Error(`Timeout (${label})`)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
@@ -69,9 +68,9 @@ function detectBrand(title) {
 
 function detectEdition(title) {
   const t = title.toLowerCase();
-  if (t.includes('limitada') || /\bel\s*20\d\d\b/.test(t)) return 'Edición Limitada';
-  if (t.includes('exclusivo') || t.includes('regional') || /\ber\s*20\d\d\b/.test(t)) return 'Exclusivo Regional';
-  if (t.includes('aniversario') || t.includes('jubiläum') || t.includes('jar') || t.includes('humidor')) return 'Aniversario';
+  if (t.includes('limitada') || t.includes('el 20') || /\bel\s*20\d\d\b/.test(t)) return 'Edición Limitada';
+  if (t.includes('exclusivo') || t.includes('regional') || t.includes('er 20') || /\ber\s*20\d\d\b/.test(t)) return 'Exclusivo Regional';
+  if (t.includes('aniversario') || t.includes('jubiläum') || t.includes('jar') || t.includes('humidor') || t.includes('collección')) return 'Aniversario';
   if (t.includes('gran reserva') || t.includes('reserva')) return 'Reserva / Gran Reserva';
   if (t.includes('casa del habano') || t.includes('lcdh')) return 'LCDH Edition';
   return 'Standard';
@@ -126,6 +125,8 @@ async function scrapeShopRaw(shop) {
 
   const html = await res.text();
   const baseOrigin = new URL(shop.url).origin;
+  
+  // Universeller Parser: Findet Produkt-Blöcke oder Links mit Preisen
   const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set();
   let match;
@@ -134,6 +135,7 @@ async function scrapeShopRaw(shop) {
     const rawHref = match[1];
     const cleanText = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (cleanText.length < 6 || cleanText.length > 150) continue;
+    
     const brand = detectBrand(cleanText);
     if (!brand) continue;
 
@@ -141,11 +143,14 @@ async function scrapeShopRaw(shop) {
     if (seen.has(fullUrl)) continue;
 
     const idx = match.index;
-    const context = html.slice(Math.max(0, idx - 350), Math.min(html.length, idx + 950));
+    const context = html.slice(Math.max(0, idx - 400), Math.min(html.length, idx + 1000));
+    
+    // Strengere Prüfung auf Ausverkauft-Status
     if (/ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|derzeit\s+nicht\s+verf/i.test(context)) continue;
 
     const priceMatch = context.match(/(\d{1,4}[.,]\d{2})\s*(?:€|&euro;|EUR)/i);
     seen.add(fullUrl);
+    
     items.push({
       id: `${shop.id}-${Buffer.from(fullUrl).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(-28)}`,
       shop_id: shop.id,
@@ -164,10 +169,9 @@ async function scrapeShopRaw(shop) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('Starte Habanos Scout Parallel-Highspeed-Scan...');
+  console.log('Starte Habanos Scout Deep-Scan...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) {
-    await sbFetch('shops', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(DEFAULT_SHOPS) });
     shops = DEFAULT_SHOPS;
   }
 
@@ -178,16 +182,9 @@ async function run() {
   const weekday = (now.getDay() + 6) % 7;
   const hour = now.getHours();
 
-  const dueShops = shops.filter(s => {
-    if (s.active === false) return false;
-    if (!s.last_checked) return true;
-    return ((now - new Date(s.last_checked)) / 60000) >= ((s.interval_min || 5) - 0.5);
-  });
-
-  // Alle fälligen Shops GLEICHZEITIG mit hartem 7-Sekunden-Limit prüfen
-  await Promise.allSettled(dueShops.map(async (shop) => {
+  await Promise.allSettled(shops.filter(s => s.active !== false).map(async (shop) => {
     try {
-      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 7000, shop.name);
+      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 7500, shop.name);
       const toUpsert = [];
       let pushCount = 0;
 
@@ -196,6 +193,7 @@ async function run() {
         if (!prev) {
           const dropType = item.edition_type !== 'Standard' ? 'NEUERSCHEINUNG' : 'NEU GELISTET';
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
+          toUpsert.payload = true;
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
           if (!isFirstInit && pushCount < 3) { await sendPush(payload, false); pushCount++; }
@@ -211,13 +209,13 @@ async function run() {
         await sbFetch('releases', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates' }, body: JSON.stringify(toUpsert) });
       }
       await sbFetch(`shops?id=eq.${shop.id}`, { method: 'PATCH', body: JSON.stringify({ last_checked: now.toISOString() }) });
-      console.log(`✓ ${shop.name}: ${foundItems.length} geprüft (${toUpsert.length} neu)`);
+      console.log(`✓ ${shop.name}: ${foundItems.length} gefunden (${toUpsert.length} neu)`);
     } catch (err) {
-      console.log(`✗ ${shop.name} übersprungen: ${err.message}`);
+      console.log(`✗ ${shop.name}: ${err.message}`);
     }
   }));
 
-  console.log(`Fertig in ${((Date.now() - startTime) / 1000).toFixed(1)} Sekunden.`);
+  console.log(`Fertig in ${((Date.now() - startTime) / 1000).toFixed(1)} Sek.`);
   process.exit(0);
 }
 
