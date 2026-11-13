@@ -93,13 +93,29 @@ async function sendPush(item, isRestock) {
 async function scrapeShopRaw(shop) {
   const items = [];
   
-  // ZURÜCK ZUR BASIS: Exakt die einfache Verbindung, die am Anfang fehlerfrei lief. 
-  // Keine verdächtigen Custom-Cookies, kein Maskierungs-Schnickschnack, der Firewalls triggert.
-  const res = await fetch(shop.url, {
-    headers: { 
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36'
-    }
-  });
+  // Echte Chrome-Browser-Header, damit Cloudflare uns nicht mehr aussperrt
+  const fetchHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
+  };
+
+  // Nur bei Wolsdorff den Alters-Cookie setzen (sonst lädt das Produkt-Gitter nicht)
+  if (shop.id === 'wolsdorff') {
+    fetchHeaders['Cookie'] = 'age_check=1; age-accepted=1; cb-enabled=accepted;';
+  }
+
+  const res = await fetch(shop.url, { headers: fetchHeaders });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   if (shop.url.includes('products.json')) {
@@ -115,8 +131,7 @@ async function scrapeShopRaw(shop) {
             title: fullTitle.slice(0, 140), brand,
             price: `${parseFloat(v.price).toFixed(2).replace('.', ',')} €`,
             format: /kiste|box|25|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Verfügbar',
-            edition_type: detectEdition(fullTitle), in_stock: true,
-            url: `https://c-cigars.de/products/${p.handle}`
+            edition_type: detectEdition(fullTitle), in_stock: true, url: `https://c-cigars.de/products/${p.handle}`
           });
         }
       }
@@ -127,36 +142,32 @@ async function scrapeShopRaw(shop) {
   let html = await res.text();
   const baseOrigin = new URL(shop.url).origin;
   
-  // Lösche Header, Footer und Navigationsmenüs komplett aus dem HTML,
-  // damit keine falschen Zigarren aus den Dropdown-Menüs gelesen werden.
+  // Zerstört die Navigation, damit keine Phantom-Zigarren aus dem Menü gelesen werden
   html = html.replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, '');
 
-  const linkRegex = /href=["']([^"']+)["']/gi;
+  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set();
   let match;
 
   while ((match = linkRegex.exec(html)) !== null) {
     const rawHref = match[1];
-    
-    // Ignoriere nutzlose System-Links
     if (rawHref.length < 5 || /\.(css|js|png|jpg|jpeg|gif|svg|woff|ttf|pdf)/i.test(rawHref) || /warenkorb|login|account|merkzettel|checkout|cart/i.test(rawHref)) continue;
 
     const fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
     if (seen.has(fullUrl)) continue;
 
-    // Radius-Scanner: Nimm den Text 600 Zeichen vor und 800 Zeichen nach dem Link, 
-    // entferne alle HTML-Klammern und lese es wie ein Mensch.
+    // Radius-Scanner: Schaut exakt 600 Zeichen vor und nach dem Link
     const startIdx = Math.max(0, match.index - 600);
     const endIdx = Math.min(html.length, match.index + 800);
     const cleanContext = html.substring(startIdx, endIdx).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     
-    // Harter Filter gegen Nicaragua/Dominikanische Zigarren
+    // Anti-New-World Filter
     if (/nicaragua|dominikan|honduras|brasil|non-cuba/i.test(fullUrl) || /nicaragua|dominikan|honduras/i.test(cleanContext)) continue;
 
     const brand = detectBrand(cleanContext);
     if (!brand) continue;
 
-    // Harter Filter gegen Ausverkaufte Artikel
+    // Filter gegen ausverkaufte Artikel
     const isSoldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht|momentan\s+nicht|zurzeit\s+nicht|nicht\s+verfügbar|nicht\s+bestellbar/i.test(cleanContext);
     if (isSoldOut) continue;
 
@@ -164,7 +175,6 @@ async function scrapeShopRaw(shop) {
     const title = cleanContext.substring(bIdx, bIdx + 100).split(/€|inkl\.|Preis|Details|Auf den|In den|Lieferzeit|Stück|Kiste/i)[0].trim();
     if (title.length < 5 || title.length > 140) continue;
 
-    // Erkennt auch Preise mit Sternchen (z.B. 12,50 * € oder 12,50 € *)
     const priceMatch = cleanContext.match(/(\d{1,4}[.,]\d{2})\s*\*?\s*(?:€|&euro;|EUR)/i);
     
     seen.add(fullUrl);
@@ -181,7 +191,7 @@ async function scrapeShopRaw(shop) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('Starte Habanos Scout Deep-Scan (Back to Basics Mode)...');
+  console.log('Starte Habanos Scout (Human-Delay Mode)...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) shops = DEFAULT_SHOPS;
 
@@ -192,9 +202,14 @@ async function run() {
   const weekday = (now.getDay() + 6) % 7;
   const hour = now.getHours();
 
-  await Promise.allSettled(shops.filter(s => s.active !== false).map(async (shop) => {
+  // WICHTIG: Sequenziell (nacheinander) prüfen, um DDoS-Sperren zu verhindern!
+  for (const shop of shops.filter(s => s.active !== false)) {
     try {
-      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 8500, shop.name);
+      // Künstliche, menschliche Pause (1,5 bis 3,5 Sekunden) vor jedem Shop
+      const delay = Math.floor(Math.random() * 2000) + 1500;
+      await new Promise(r => setTimeout(r, delay));
+
+      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 12000, shop.name);
       const toUpsert = [];
       let pushCount = 0;
 
@@ -222,7 +237,7 @@ async function run() {
     } catch (err) {
       console.log(`✗ ${shop.name}: ${err.message}`);
     }
-  }));
+  }
 
   console.log(`Fertig in ${((Date.now() - startTime) / 1000).toFixed(1)} Sek.`);
   process.exit(0);
