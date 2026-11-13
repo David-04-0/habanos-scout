@@ -79,8 +79,8 @@ function detectEdition(title) {
 async function sendPush(item, isRestock) {
   if (!NTFY_TOPIC) return;
   const tag = isRestock ? 'RESTOCK' : (item.edition_type !== 'Standard' ? item.edition_type.toUpperCase() : 'NEU');
-  const title = `[${tag}] ${item.brand}: ${item.title}`;
-  const msg = `${item.shop_name} • ${item.price} (${item.format})\nDirektlink: ${item.url}`;
+  const title = `[${tag}] ${item.brand}`;
+  const msg = `${item.title}\n${item.shop_name} • ${item.price} (${item.format})\nDirektlink: ${item.url}`;
   try {
     await withHardTimeout(fetch(`https://ntfy.sh/${encodeURIComponent(NTFY_TOPIC)}`, {
       method: 'POST',
@@ -92,10 +92,16 @@ async function sendPush(item, isRestock) {
 
 async function scrapeShopRaw(shop) {
   const items = [];
+  // Tarnkappen-Modus für Shops wie Herzog
   const res = await fetch(shop.url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36' }
+    headers: { 
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Cache-Control': 'no-cache'
+    }
   });
-  if (!res.ok) return items;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   if (shop.url.includes('products.json')) {
     const data = await res.json();
@@ -107,14 +113,11 @@ async function scrapeShopRaw(shop) {
           const fullTitle = v.title && v.title !== 'Default Title' ? `${p.title} - ${v.title}` : p.title;
           items.push({
             id: `${shop.id}-${v.id}`,
-            shop_id: shop.id,
-            shop_name: shop.name,
-            title: fullTitle.slice(0, 140),
-            brand,
+            shop_id: shop.id, shop_name: shop.name,
+            title: fullTitle.slice(0, 140), brand,
             price: `${parseFloat(v.price).toFixed(2).replace('.', ',')} €`,
             format: /kiste|box|25|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Verfügbar',
-            edition_type: detectEdition(fullTitle),
-            in_stock: true,
+            edition_type: detectEdition(fullTitle), in_stock: true,
             url: `https://c-cigars.de/products/${p.handle}`
           });
         }
@@ -126,40 +129,45 @@ async function scrapeShopRaw(shop) {
   const html = await res.text();
   const baseOrigin = new URL(shop.url).origin;
   
-  // Universeller Parser: Findet Produkt-Blöcke oder Links mit Preisen
-  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  // Neuer Block-Parser für extrem verschachtelte Seiten (Wolsdorff, Dalay etc.)
+  const linkRegex = /href=["']([^"']+)["']/gi;
   const seen = new Set();
   let match;
 
   while ((match = linkRegex.exec(html)) !== null) {
     const rawHref = match[1];
-    const cleanText = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (cleanText.length < 6 || cleanText.length > 150) continue;
-    
-    const brand = detectBrand(cleanText);
-    if (!brand) continue;
+    // Ignoriere nutzlose Links
+    if (rawHref.length < 5 || /\.(css|js|png|jpg|jpeg|gif|svg|woff|json)/i.test(rawHref) || rawHref.includes('warenkorb') || rawHref.includes('login')) continue;
 
     const fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
     if (seen.has(fullUrl)) continue;
 
-    const idx = match.index;
-    const context = html.slice(Math.max(0, idx - 400), Math.min(html.length, idx + 1000));
+    // Erfasse 500 Zeichen vor und 1200 Zeichen nach dem Link, um den gesamten Produktblock zu scannen
+    const contextStr = html.substring(Math.max(0, match.index - 500), Math.min(html.length, match.index + 1200));
+    const cleanContext = contextStr.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     
-    // Strengere Prüfung auf Ausverkauft-Status
-    if (/ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|derzeit\s+nicht\s+verf/i.test(context)) continue;
+    const brand = detectBrand(cleanContext);
+    if (!brand) continue;
 
-    const priceMatch = context.match(/(\d{1,4}[.,]\d{2})\s*(?:€|&euro;|EUR)/i);
-    seen.add(fullUrl);
+    // Harte Prüfung auf "Ausverkauft" (auch auf Englisch für internationale Themes)
+    if (/ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht\s+verf/i.test(cleanContext)) continue;
+
+    const priceMatch = cleanContext.match(/(\d{1,4}[.,]\d{2})\s*(?:€|&euro;|EUR)/i);
     
+    // Schneidet den genauen Zigarrennamen ab (ohne Preis- und Menü-Texte)
+    const bIdx = cleanContext.toLowerCase().indexOf(brand.toLowerCase());
+    const rawTitle = cleanContext.substring(bIdx, bIdx + 90).split(/€|inkl\.|Preis|Details|Warenkorb/i)[0].trim();
+    
+    seen.add(fullUrl);
     items.push({
       id: `${shop.id}-${Buffer.from(fullUrl).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(-28)}`,
       shop_id: shop.id,
       shop_name: shop.name,
-      title: cleanText,
+      title: rawTitle,
       brand,
       price: priceMatch ? `${priceMatch[1].replace('.', ',')} €` : 'Auf Lager',
-      format: /kiste|box|25er|10er|50er|cabinet/i.test(cleanText + ' ' + context) ? 'Kiste / Box' : 'Einzel / Verfügbar',
-      edition_type: detectEdition(cleanText),
+      format: /kiste|box|25er|10er|50er|cabinet/i.test(cleanContext) ? 'Kiste / Box' : 'Einzel / Verfügbar',
+      edition_type: detectEdition(cleanContext),
       in_stock: true,
       url: fullUrl
     });
@@ -169,11 +177,9 @@ async function scrapeShopRaw(shop) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('Starte Habanos Scout Deep-Scan...');
+  console.log('Starte Habanos Scout Deep-Scan (Stealth Mode)...');
   let shops = await sbFetch('shops?select=*');
-  if (!shops || shops.length === 0) {
-    shops = DEFAULT_SHOPS;
-  }
+  if (!shops || shops.length === 0) shops = DEFAULT_SHOPS;
 
   const existing = await sbFetch('releases?select=id,in_stock');
   const existingMap = new Map((existing || []).map(r => [r.id, r]));
@@ -184,7 +190,7 @@ async function run() {
 
   await Promise.allSettled(shops.filter(s => s.active !== false).map(async (shop) => {
     try {
-      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 7500, shop.name);
+      const foundItems = await withHardTimeout(scrapeShopRaw(shop), 8500, shop.name);
       const toUpsert = [];
       let pushCount = 0;
 
@@ -193,9 +199,9 @@ async function run() {
         if (!prev) {
           const dropType = item.edition_type !== 'Standard' ? 'NEUERSCHEINUNG' : 'NEU GELISTET';
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
-          toUpsert.payload = true;
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
+          // Schickt nur Pushes, wenn die Datenbank schon initialisiert wurde (kein Spam!)
           if (!isFirstInit && pushCount < 3) { await sendPush(payload, false); pushCount++; }
         } else if (prev.in_stock === false) {
           const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
