@@ -94,14 +94,16 @@ async function scrapeShopRaw(shop) {
   const items = [];
   const res = await fetch(shop.url, {
     headers: { 
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'de-DE,de;q=0.9'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'de-DE,de;q=0.9',
+      'Cookie': 'age_check=1; age-accepted=1; cb-enabled=accepted;' // Umgeht Wolsdorff & Co. Altersprüfungen
     }
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   if (shop.url.includes('products.json')) {
+    // Gleiche JSON Logik wie immer...
     const data = await res.json();
     for (const p of (data.products || [])) {
       const brand = detectBrand(p.title);
@@ -126,44 +128,45 @@ async function scrapeShopRaw(shop) {
   let html = await res.text();
   const baseOrigin = new URL(shop.url).origin;
   
-  // Zerstöre Menüs, Header und Footer, damit Falsch-Zigarren verschwinden
   html = html.replace(/<header[\s\S]*?<\/header>/gi, '')
              .replace(/<nav[\s\S]*?<\/nav>/gi, '')
              .replace(/<footer[\s\S]*?<\/footer>/gi, '')
              .replace(/<aside[\s\S]*?<\/aside>/gi, '');
 
-  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  const seen = new Set();
-  let match;
+  // DER BLOCK-PARSER: Zerschneidet das Raster in völlig isolierte Produkt-Boxen!
+  let blocks = html.split(/(?=<div[^>]*class=["'][^"']*(?:product|article|item|card|listing-box|product-wrapper|col-)[^"']*["'])/i);
+  if (blocks.length < 5) blocks = html.split(/(?=<a\s)/i); // Fallback
 
-  while ((match = linkRegex.exec(html)) !== null) {
-    const rawHref = match[1];
-    if (rawHref.length < 5 || /\.(css|js|png|jpg|jpeg|gif|svg)/i.test(rawHref) || /warenkorb|login|account|merkzettel/i.test(rawHref)) continue;
+  const seen = new Set();
+
+  for (let block of blocks) {
+    const linkMatch = block.match(/href=["']([^"']+)["']/i);
+    if (!linkMatch) continue;
+    const rawHref = linkMatch[1];
+    
+    if (rawHref.length < 5 || /\.(css|js|png|jpg|jpeg|gif|svg)/i.test(rawHref) || /warenkorb|login|account|merkzettel|newsletter/i.test(rawHref)) continue;
 
     const fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
-    
-    // ANTI-NEW-WORLD-FILTER: Blockiert rigoros Dominikanische, Nicaragua etc.
-    if (/nicaragua|dominikan|honduras|brasil|non-cuba/i.test(fullUrl)) continue;
     if (seen.has(fullUrl)) continue;
 
-    // Fokus-Modus: Nur ganz nah um den Link herum suchen
-    const startIdx = Math.max(0, match.index - 250);
-    const endIdx = Math.min(html.length, match.index + match[0].length + 400);
-    const cleanContext = html.substring(startIdx, endIdx).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    const linkText = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanContext = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     
+    // Anti-New-World Filter
+    if (/nicaragua|dominikan|honduras|brasil|non-cuba/i.test(fullUrl) || /nicaragua|dominikan|honduras/i.test(cleanContext)) continue;
+
     const brand = detectBrand(cleanContext);
     if (!brand) continue;
 
-    // Strengere Ausverkauft-Prüfung
-    if (/ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht\s+verf/i.test(cleanContext)) continue;
+    // Erweitertes, extrem strenges Ausverkauft-Wörterbuch (isoliert auf DIESEN Block)
+    const isSoldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht\s+verf|momentan\s+nicht|zurzeit\s+nicht|nicht\s+verfügbar|nicht\s+bestellbar|wird\s+nachbestellt|status[\s_-]*red|Ampel[\s_-]*rot/i.test(cleanContext);
+    if (isSoldOut) continue;
 
-    let title = linkText.length > 5 ? linkText : cleanContext.substring(0, 80);
-    const bIdx = title.toLowerCase().indexOf(brand.toLowerCase());
+    let title = cleanContext.substring(0, 130);
+    const bIdx = cleanContext.toLowerCase().indexOf(brand.toLowerCase());
     if (bIdx > -1) {
-        title = title.substring(bIdx).split(/€|inkl\.|Preis|Details|Auf den/i)[0].trim();
+        title = cleanContext.substring(bIdx).split(/€|inkl\.|Preis|Details|Auf den|In den|Lieferzeit/i)[0].trim();
     }
-    if (title.length < 5 || title.length > 120) continue;
+    if (title.length < 5 || title.length > 140) continue;
 
     const priceMatch = cleanContext.match(/(\d{1,4}[.,]\d{2})\s*(?:€|&euro;|EUR)/i);
     
@@ -181,7 +184,7 @@ async function scrapeShopRaw(shop) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('Starte Habanos Scout Deep-Scan (Stealth + Anti-New-World)...');
+  console.log('Starte Habanos Scout Deep-Scan (Block-Parser)...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) shops = DEFAULT_SHOPS;
 
@@ -205,6 +208,7 @@ async function run() {
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
+          // Schutz gegen Spam bei der Ersteinrichtung
           if (!isFirstInit && pushCount < 3) { await sendPush(payload, false); pushCount++; }
         } else if (prev.in_stock === false) {
           const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
