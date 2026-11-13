@@ -93,22 +93,13 @@ async function sendPush(item, isRestock) {
 async function scrapeShopRaw(shop) {
   const items = [];
   
-  // Clean Headers (ohne verdächtige Cookies, um 403/404 Firewalls zu umgehen)
-  const fetchHeaders = { 
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-  };
-
-  // Nur Wolsdorff bekommt den Alters-Cookie
-  if (shop.id === 'wolsdorff') {
-    fetchHeaders['Cookie'] = 'age_check=1; age-accepted=1;';
-  }
-  // Herzog bekommt Safari-Tarnkappe gegen "fetch failed"
-  if (shop.id.includes('herzog')) {
-    fetchHeaders['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
-  }
-
-  const res = await fetch(shop.url, { headers: fetchHeaders });
+  // ZURÜCK ZUR BASIS: Exakt die einfache Verbindung, die am Anfang fehlerfrei lief. 
+  // Keine verdächtigen Custom-Cookies, kein Maskierungs-Schnickschnack, der Firewalls triggert.
+  const res = await fetch(shop.url, {
+    headers: { 
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36'
+    }
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   if (shop.url.includes('products.json')) {
@@ -136,47 +127,45 @@ async function scrapeShopRaw(shop) {
   let html = await res.text();
   const baseOrigin = new URL(shop.url).origin;
   
-  // Zerstöre Menüs, Header und Footer
-  html = html.replace(/<header[\s\S]*?<\/header>/gi, '')
-             .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-             .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-             .replace(/<aside[\s\S]*?<\/aside>/gi, '');
+  // Lösche Header, Footer und Navigationsmenüs komplett aus dem HTML,
+  // damit keine falschen Zigarren aus den Dropdown-Menüs gelesen werden.
+  html = html.replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, '');
 
-  // DER BLOCK-PARSER
-  let blocks = html.split(/(?=<div[^>]*class=["'][^"']*(?:product|article|item|card|listing-box|product-wrapper|col-)[^"']*["'])/i);
-  if (blocks.length < 5) blocks = html.split(/(?=<a\s)/i); 
-
+  const linkRegex = /href=["']([^"']+)["']/gi;
   const seen = new Set();
+  let match;
 
-  for (let block of blocks) {
-    const linkMatch = block.match(/href=["']([^"']+)["']/i);
-    if (!linkMatch) continue;
-    const rawHref = linkMatch[1];
+  while ((match = linkRegex.exec(html)) !== null) {
+    const rawHref = match[1];
     
-    if (rawHref.length < 5 || /\.(css|js|png|jpg|jpeg|gif|svg)/i.test(rawHref) || /warenkorb|login|account|merkzettel|newsletter/i.test(rawHref)) continue;
+    // Ignoriere nutzlose System-Links
+    if (rawHref.length < 5 || /\.(css|js|png|jpg|jpeg|gif|svg|woff|ttf|pdf)/i.test(rawHref) || /warenkorb|login|account|merkzettel|checkout|cart/i.test(rawHref)) continue;
 
     const fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
     if (seen.has(fullUrl)) continue;
 
-    const cleanContext = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    // Radius-Scanner: Nimm den Text 600 Zeichen vor und 800 Zeichen nach dem Link, 
+    // entferne alle HTML-Klammern und lese es wie ein Mensch.
+    const startIdx = Math.max(0, match.index - 600);
+    const endIdx = Math.min(html.length, match.index + 800);
+    const cleanContext = html.substring(startIdx, endIdx).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     
-    // Anti-New-World Filter
+    // Harter Filter gegen Nicaragua/Dominikanische Zigarren
     if (/nicaragua|dominikan|honduras|brasil|non-cuba/i.test(fullUrl) || /nicaragua|dominikan|honduras/i.test(cleanContext)) continue;
 
     const brand = detectBrand(cleanContext);
     if (!brand) continue;
 
-    const isSoldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht\s+verf|momentan\s+nicht|zurzeit\s+nicht|nicht\s+verfügbar|nicht\s+bestellbar/i.test(cleanContext);
+    // Harter Filter gegen Ausverkaufte Artikel
+    const isSoldOut = /ausverkauft|nicht\s+lieferbar|nicht\s+auf\s+lager|vergriffen|sold\s*out|out\s*of\s*stock|derzeit\s+nicht|momentan\s+nicht|zurzeit\s+nicht|nicht\s+verfügbar|nicht\s+bestellbar/i.test(cleanContext);
     if (isSoldOut) continue;
 
-    let title = cleanContext.substring(0, 130);
     const bIdx = cleanContext.toLowerCase().indexOf(brand.toLowerCase());
-    if (bIdx > -1) {
-        title = cleanContext.substring(bIdx).split(/€|inkl\.|Preis|Details|Auf den|In den|Lieferzeit/i)[0].trim();
-    }
+    const title = cleanContext.substring(bIdx, bIdx + 100).split(/€|inkl\.|Preis|Details|Auf den|In den|Lieferzeit|Stück|Kiste/i)[0].trim();
     if (title.length < 5 || title.length > 140) continue;
 
-    const priceMatch = cleanContext.match(/(\d{1,4}[.,]\d{2})\s*(?:€|&euro;|EUR)/i);
+    // Erkennt auch Preise mit Sternchen (z.B. 12,50 * € oder 12,50 € *)
+    const priceMatch = cleanContext.match(/(\d{1,4}[.,]\d{2})\s*\*?\s*(?:€|&euro;|EUR)/i);
     
     seen.add(fullUrl);
     items.push({
@@ -192,7 +181,7 @@ async function scrapeShopRaw(shop) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('Starte Habanos Scout Deep-Scan (Clean Connection Mode)...');
+  console.log('Starte Habanos Scout Deep-Scan (Back to Basics Mode)...');
   let shops = await sbFetch('shops?select=*');
   if (!shops || shops.length === 0) shops = DEFAULT_SHOPS;
 
