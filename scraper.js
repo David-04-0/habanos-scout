@@ -604,4 +604,150 @@ async function scrapeShop(shopConfig) {
               id: itemId,
               shop_id: shopConfig.id,
               shop_name: shopConfig.name,
-              title: fullTitle.slice
+              title: fullTitle.slice(0, 130),
+              brand,
+              price: `${parseFloat(v.price).toFixed(2).replace('.', ',')} €`,
+              format: /kiste|box|25|20|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Einzel / Verfügbar',
+              edition_type: detectEdition(fullTitle),
+              in_stock: Boolean(v.available),
+              url: `${baseOrigin}/products/${p.handle}`
+            });
+          }
+        }
+      }
+    }
+    return { items, pagesScanned };
+  }
+
+  // 2. HTML-Hauptseite + Marken-/Paginierungs-Seiten abrufen
+  const seenUrls = new Set();
+  const mainHtml = await fetchHtml(shopConfig.url);
+  items.push(...parseProductsFromHtml(mainHtml, shopConfig, baseOrigin, seenUrls, shopConfig.url));
+
+  const subUrls = new Set(shopConfig.extra_urls || []);
+  if (shopConfig.crawl_subpages) {
+    const hrefRegex = /href=["']([^"']+)["']/gi;
+    let m;
+    while ((m = hrefRegex.exec(mainHtml)) !== null) {
+      const raw = m[1].trim();
+      if (raw.startsWith('#') || raw.startsWith('javascript:')) continue;
+      let u;
+      try {
+        u = raw.startsWith('http') ? raw : `${baseOrigin}${raw.startsWith('/') ? '' : '/'}${raw}`;
+        u = u.split('#')[0];
+      } catch (e) { continue; }
+
+      if (!u.startsWith(baseOrigin) || u === shopConfig.url) continue;
+      if (/warenkorb|login|account|kontakt|impressum|datenschutz|versand|nicaragua|dominikan|honduras|brasil/i.test(u)) continue;
+
+      const matchesPattern = shopConfig.subpage_pattern && shopConfig.subpage_pattern.test(u);
+      const matchesBrands = shopConfig.crawl_brands && BRAND_URL_SLUGS.test(u);
+
+      if (matchesPattern || matchesBrands) {
+        subUrls.add(u);
+      }
+    }
+  }
+
+  const urlList = Array.from(subUrls).slice(0, 35);
+  let pagesScanned = 1;
+
+  for (let i = 0; i < urlList.length; i += 4) {
+    const batch = urlList.slice(i, i + 4);
+    const results = await Promise.allSettled(batch.map(u => fetchHtml(u).then(html => ({ url: u, html }))));
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        pagesScanned++;
+        items.push(...parseProductsFromHtml(r.value.html, shopConfig, baseOrigin, seenUrls, r.value.url));
+      }
+    }
+  }
+
+  return { items, pagesScanned };
+}
+
+async function run() {
+  const startTime = Date.now();
+  console.log('=== Starte Habanos Scout (Anchor-Boundary Engine v4) ===');
+
+  const dbShopsPayload = DEFAULT_SHOPS.map(s => ({
+    id: s.id, name: s.name, url: s.url, interval_min: s.interval_min, active: true
+  }));
+  await sbFetch('shops', {
+    method: 'POST',
+    headers: { 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify(dbShopsPayload)
+  });
+
+  const existing = await sbFetch('releases?select=id,in_stock,price');
+  const existingMap = new Map((existing || []).map(r => [r.id, r]));
+  const isFirstInit = existingMap.size === 0;
+  const now = new Date();
+  const weekday = (now.getDay() + 6) % 7;
+  const hour = now.getHours();
+
+  for (const shopConfig of DEFAULT_SHOPS) {
+    try {
+      const { items: foundItems, pagesScanned } = await scrapeShop(shopConfig);
+      const toUpsert = [];
+      let pushCount = 0;
+      let availableCount = 0;
+
+      for (const item of foundItems) {
+        if (item.in_stock) availableCount++;
+        const prev = existingMap.get(item.id);
+
+        if (!prev) {
+          const dropType = item.in_stock
+            ? (item.edition_type !== 'Standard' ? 'NEUERSCHEINUNG' : 'NEU GELISTET')
+            : 'AUSVERKAUFT';
+          const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
+          toUpsert.push(payload);
+          existingMap.set(item.id, payload);
+
+          if (!isFirstInit && item.in_stock && pushCount < 4) {
+            await sendPush(payload, false);
+            pushCount++;
+          }
+        } else if (prev.in_stock === false && item.in_stock === true) {
+          const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
+          toUpsert.push(payload);
+          existingMap.set(item.id, payload);
+
+          if (pushCount < 5) {
+            await sendPush(payload, true);
+            pushCount++;
+          }
+        } else if (prev.in_stock === true && item.in_stock === false) {
+          const payload = { ...item, drop_type: 'AUSVERKAUFT', in_stock: false, weekday, hour, found_at: now.toISOString() };
+          toUpsert.push(payload);
+          existingMap.set(item.id, payload);
+        }
+      }
+
+      if (toUpsert.length > 0) {
+        for (let i = 0; i < toUpsert.length; i += 100) {
+          await sbFetch('releases', {
+            method: 'POST',
+            headers: { 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify(toUpsert.slice(i, i + 100))
+          });
+        }
+      }
+
+      await sbFetch(`shops?id=eq.${shopConfig.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ last_checked: now.toISOString() })
+      });
+
+      console.log(`✓ ${shopConfig.name} (${pagesScanned} Seiten): ${availableCount} verfügbar / ${foundItems.length} gesamt (${toUpsert.length} Updates)`);
+    } catch (err) {
+      console.log(`✗ ${shopConfig.name}: ${err.message}`);
+    }
+  }
+
+  console.log(`=== Komplett-Scan fertig in ${((Date.now() - startTime) / 1000).toFixed(1)} Sek. ===`);
+  process.exit(0);
+}
+
+run();
