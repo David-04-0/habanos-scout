@@ -1,22 +1,26 @@
+const { execFileSync } = require('child_process');
+
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').trim();
 const NTFY_TOPIC = (process.env.NTFY_TOPIC || '').trim();
 
-// Verifizierte Original-URLs + Zusatz-Quellen (Marken/Aktionen)
 const DEFAULT_SHOPS = [
   {
     id: 'wolsdorff',
     name: 'Wolsdorff',
-    url: 'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/',
+    url: 'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/',
     extra_urls: [
       'https://wolsdorff.shop/kuba-freitag',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=2',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=3',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=4',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=5',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=6',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=7',
-      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/?p=8'
+      'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=2',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=3',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=4',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=5',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=6',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=7',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=8',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=9',
+      'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/?p=10'
     ],
     interval_min: 5
   },
@@ -25,19 +29,36 @@ const DEFAULT_SHOPS = [
     name: 'Cigarworld / Casa Benden',
     url: 'https://www.cigarworld.de/zigarren/kuba',
     crawl_subpages: true,
-    subpage_pattern: /\/zigarren\/kuba\/(regulares|limitadas|exclusivos|anos-chinos|reserva|coleccion|vintage)\//i,
+    subpage_pattern: /\/zigarren\/kuba\/(regulares|limitadas|exclusivos|anos-chinos|reserva|gran-reservas|regionales|especiales|anejados)/i,
     interval_min: 5
   },
   {
     id: 'ccigars',
     name: 'C-Cigars',
+    type: 'shopify',
     url: 'https://c-cigars.de/collections/kubanische-zigarren/products.json?limit=250',
     interval_min: 3
   },
   {
     id: 'herzog',
     name: 'Zigarren Herzog & LCDH Berlin',
+    type: 'shopify',
     url: 'https://zigarren-herzog.com/collections/kuba/products.json?limit=250',
+    extra_urls: [
+      'https://zigarren-herzog.com/collections/kubanische-tabake/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/cohiba/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/montecristo/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/partagas/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/romeo-y-julieta/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/h-upmann/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/hoyo-de-monterrey/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/bolivar/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/trinidad/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/punch/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/ramon-allones/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/la-gloria-cubana/products.json?limit=250',
+      'https://zigarren-herzog.com/collections/quai-dorsay/products.json?limit=250'
+    ],
     interval_min: 5
   },
   {
@@ -45,11 +66,17 @@ const DEFAULT_SHOPS = [
     name: 'Dalay Zigarren',
     url: 'https://www.dalayzigarren.de/kubanische-zigarren',
     extra_urls: [
-      'https://www.dalayzigarren.de/kubanische-zigarren?p=2',
-      'https://www.dalayzigarren.de/kubanische-zigarren?p=3',
-      'https://www.dalayzigarren.de/kubanische-zigarren?p=4',
-      'https://www.dalayzigarren.de/kubanische-zigarren?p=5',
-      'https://www.dalayzigarren.de/kubanische-zigarren?p=6'
+      'https://www.dalayzigarren.de/kubanische-zigarren_s2',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s3',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s4',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s5',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s6',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s7',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s8',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s9',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s10',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s11',
+      'https://www.dalayzigarren.de/kubanische-zigarren_s12'
     ],
     interval_min: 5
   },
@@ -84,7 +111,9 @@ const DEFAULT_SHOPS = [
       'https://www.paul-bugge.com/hoyo-de-monterrey-zigarren',
       'https://www.paul-bugge.com/h-upmann-zigarren',
       'https://www.paul-bugge.com/trinidad-zigarren',
-      'https://www.paul-bugge.com/bolivar-zigarren'
+      'https://www.paul-bugge.com/bolivar-zigarren',
+      'https://www.paul-bugge.com/ramon-allones-zigarren',
+      'https://www.paul-bugge.com/punch-zigarren'
     ],
     interval_min: 5
   },
@@ -100,7 +129,9 @@ const DEFAULT_SHOPS = [
       'https://www.zigarre.de/hoyo-de-monterrey.html',
       'https://www.zigarre.de/h-upmann.html',
       'https://www.zigarre.de/trinidad.html',
-      'https://www.zigarre.de/bolivar.html'
+      'https://www.zigarre.de/bolivar.html',
+      'https://www.zigarre.de/ramon-allones.html',
+      'https://www.zigarre.de/punch.html'
     ],
     interval_min: 5
   },
@@ -119,7 +150,12 @@ const DEFAULT_SHOPS = [
     extra_urls: [
       'https://brinkmannfinest.de/zigarren/herkunft/kuba/?p=2',
       'https://brinkmannfinest.de/zigarren/herkunft/kuba/?p=3',
-      'https://brinkmannfinest.de/zigarren/herkunft/kuba/?p=4'
+      'https://brinkmannfinest.de/zigarren/herkunft/kuba/?p=4',
+      'https://brinkmannfinest.de/cohiba/',
+      'https://brinkmannfinest.de/montecristo/',
+      'https://brinkmannfinest.de/partagas/',
+      'https://brinkmannfinest.de/romeo-y-julieta/',
+      'https://brinkmannfinest.de/trinidad/'
     ],
     interval_min: 5
   },
@@ -127,8 +163,6 @@ const DEFAULT_SHOPS = [
     id: 'zigarrentraum',
     name: 'Zigarrentraum',
     url: 'https://www.zigarrentraum.de/sortiment/zigarren/kubanische-zigarren/',
-    crawl_subpages: true,
-    subpage_pattern: /\/sortiment\/zigarren\/kubanische-zigarren\//i,
     interval_min: 5
   },
   {
@@ -136,6 +170,7 @@ const DEFAULT_SHOPS = [
     name: 'Zigarrenschachtel',
     url: 'https://www.zigarrenschachtel.de/kubanische-zigarren',
     extra_urls: [
+      'https://www.zigarrenschachtel.de/hersteller-habanos-sa',
       'https://www.zigarrenschachtel.de/kubanische-zigarren_s2',
       'https://www.zigarrenschachtel.de/kubanische-zigarren_s3',
       'https://www.zigarrenschachtel.de/kubanische-zigarren_s4',
@@ -147,11 +182,11 @@ const DEFAULT_SHOPS = [
   {
     id: 'pipehouse',
     name: 'Pipe House',
-    url: 'https://pipehouse.de/herkunft/cuba/',
+    url: 'https://pipehouse.de/cigarren/kubanische-zigarren/',
     extra_urls: [
+      'https://pipehouse.de/herkunft/cuba/',
       'https://pipehouse.de/herkunft/cuba/page/2/',
-      'https://pipehouse.de/herkunft/cuba/page/3/',
-      'https://pipehouse.de/herkunft/cuba/page/4/'
+      'https://pipehouse.de/herkunft/cuba/page/3/'
     ],
     interval_min: 10
   },
@@ -169,32 +204,35 @@ const DEFAULT_SHOPS = [
   {
     id: 'starkezigarren',
     name: 'StarkeZigarren',
-    url: 'https://www.starkezigarren.de/zigarren/kuba/',
+    url: 'https://www.starkezigarren.de/Zigarren-Kuba',
+    extra_urls: [
+      'https://www.starkezigarren.de/Kubanische-Zigarren'
+    ],
     interval_min: 10
   },
   {
     id: 'cigarrenversand24',
     name: 'Cigarrenversand24',
-    url: 'https://www.cigarrenversand24.de/Cigarren/Kuba/',
+    url: 'https://www.cigarrenversand24.de/Cigarren-Welt/',
     interval_min: 10
   },
   {
     id: 'tabakkontor',
     name: 'Tabak Kontor Leipzig',
-    url: 'https://www.tabak-kontor.de/',
-    interval_min: 10
+    url: 'https://www.tabak-kontor.de/shop.html',
+    interval_min: 15
   }
 ];
 
 const BRANDS = [
   'Cohiba', 'Montecristo', 'Partagás', 'Partagas', 'Romeo y Julieta', 'Hoyo de Monterrey',
   'H. Upmann', 'H.Upmann', 'Upmann', 'Trinidad', 'Bolívar', 'Bolivar', 'Punch',
-  'Ramón Allones', 'Ramon Allones', 'Quai d\'Orsay', 'Quai d Orsay', 'Vegas Robaina',
-  'Cuaba', 'San Cristóbal', 'San Cristobal', 'Fonseca', 'Juan López', 'Juan Lopez',
-  'Por Larrañaga', 'Por Larranaga', 'Rafael González', 'Rafael Gonzalez', 'Saint Luis Rey',
-  'Sancho Panza', 'Vegueros', 'Diplomáticos', 'Diplomaticos', 'El Rey del Mundo',
-  'La Gloria Cubana', 'Quintero', 'José L. Piedra', 'Jose L. Piedra', 'J. L. Piedra',
-  'La Flor de Cano', 'Flor de Cano', 'Guantanamera'
+  'Ramón Allones', 'Ramon Allones', 'Quai d\'Orsay', 'Quai d Orsay', 'Quai d´Orsay',
+  'Vegas Robaina', 'Cuaba', 'San Cristóbal', 'San Cristobal', 'Fonseca',
+  'Juan López', 'Juan Lopez', 'Por Larrañaga', 'Por Larranaga', 'Rafael González', 'Rafael Gonzalez',
+  'Saint Luis Rey', 'Sancho Panza', 'Vegueros', 'Diplomáticos', 'Diplomaticos',
+  'El Rey del Mundo', 'La Gloria Cubana', 'Quintero', 'José L. Piedra', 'Jose L. Piedra', 'J. L. Piedra',
+  'La Flor de Cano', 'Flor de Cano', 'Guantanamera', 'Cabañas', 'Cabanas'
 ];
 
 function withHardTimeout(promise, ms, label) {
@@ -220,16 +258,25 @@ async function sbFetch(path, options = {}) {
   })(), 10000, 'Supabase');
 }
 
-function detectBrand(title) {
-  const lower = title.toLowerCase();
+function detectBrand(text) {
+  if (!text) return null;
+  const lower = text.toLowerCase();
   for (const b of BRANDS) {
-    if (lower.includes(b.toLowerCase())) {
+    const bLow = b.toLowerCase();
+    const idx = lower.indexOf(bLow);
+    if (idx !== -1) {
+      // Wortgrenze prüfen, damit z.B. "Punch" nicht in "Cigar Punch" (Bohrer) matcht
+      const before = idx === 0 ? ' ' : lower[idx - 1];
+      if (/[a-zäöüß]/.test(before)) continue;
+      if (bLow === 'punch' && /cutter|bohrer|rundschneider|feuerzeug|ständer/i.test(lower)) continue;
+
       const map = {
         'Partagas': 'Partagás', 'Bolivar': 'Bolívar', 'Ramon Allones': 'Ramón Allones',
         'San Cristobal': 'San Cristóbal', 'Juan Lopez': 'Juan López', 'Por Larranaga': 'Por Larrañaga',
         'Diplomaticos': 'Diplomáticos', 'Jose L. Piedra': 'José L. Piedra', 'J. L. Piedra': 'José L. Piedra',
         'H.Upmann': 'H. Upmann', 'Upmann': 'H. Upmann', 'Rafael Gonzalez': 'Rafael González',
-        'Quai d Orsay': 'Quai d\'Orsay', 'Flor de Cano': 'La Flor de Cano'
+        'Quai d Orsay': 'Quai d\'Orsay', 'Quai d´Orsay': 'Quai d\'Orsay',
+        'Flor de Cano': 'La Flor de Cano', 'Cabanas': 'Cabañas'
       };
       return map[b] || b;
     }
@@ -239,10 +286,10 @@ function detectBrand(title) {
 
 function detectEdition(title) {
   const t = title.toLowerCase();
-  if (t.includes('limitada') || t.includes('el 20') || /\bel\s*20\d\d\b/.test(t) || /\ble\s*20\d\d\b/.test(t)) return 'Edición Limitada';
-  if (t.includes('exclusivo') || t.includes('regional') || t.includes('er 20') || /\ber\s*20\d\d\b/.test(t)) return 'Exclusivo Regional';
+  if (t.includes('limitada') || /\bel\s*20\d\d\b/.test(t) || /\ble\s*20\d\d\b/.test(t)) return 'Edición Limitada';
+  if (t.includes('exclusivo') || t.includes('regional') || /\ber\s*20\d\d\b/.test(t)) return 'Exclusivo Regional';
   if (t.includes('aniversario') || t.includes('jubiläum') || t.includes('jar') || t.includes('humidor') || t.includes('colección') || t.includes('year of the') || t.includes('linea maestra') || t.includes('línea maestra') || t.includes('linea de oro') || t.includes('línea de oro') || t.includes('behike')) return 'Rarität / Sonderedition';
-  if (t.includes('gran reserva') || t.includes('reserva')) return 'Reserva / Gran Reserva';
+  if (t.includes('gran reserva') || t.includes('reserva') || t.includes('cosecha')) return 'Reserva / Gran Reserva';
   if (t.includes('casa del habano') || t.includes('lcdh')) return 'LCDH Edition';
   return 'Standard';
 }
@@ -261,98 +308,205 @@ async function sendPush(item, isRestock) {
   } catch (e) {}
 }
 
+// Mehrstufiger HTML-Abruf (Direkt -> System-Curl -> Proxy-Fallback bei HTTP 403)
 async function fetchHtml(url) {
-  const res = await withHardTimeout(fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8'
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+  try {
+    const res = await withHardTimeout(fetch(url, {
+      headers: {
+        'User-Agent': ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8'
+      }
+    }), 9000, url);
+
+    if (res.ok) return await res.text();
+    if (res.status === 404) throw new Error('HTTP 404');
+  } catch (err) {
+    if (err.message === 'HTTP 404') throw err;
+  }
+
+  // Stufe 2: System-Curl mit HTTP/2 & TLS-Stack (umgeht Node-undici 403-Sperren)
+  try {
+    const out = execFileSync('curl', [
+      '-sL', '--compressed', '--max-time', '8',
+      '-A', ua,
+      '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      '-H', 'Accept-Language: de-DE,de;q=0.9',
+      url
+    ], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    if (out && out.length > 500 && !/<title>403 Forbidden|<title>Just a moment/i.test(out)) {
+      return out;
     }
-  }), 10000, url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+  } catch (e) {}
+
+  // Stufe 3: Proxy-Relay für hart geblockte US-GitHub-IPs (403-Shops)
+  for (const proxyUrl of [
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ]) {
+    try {
+      const pRes = await withHardTimeout(fetch(proxyUrl), 9000, 'Proxy');
+      if (pRes.ok) {
+        const txt = await pRes.text();
+        if (txt && txt.length > 500 && !/<title>403 Forbidden/i.test(txt)) return txt;
+      }
+    } catch (e) {}
+  }
+
+  throw new Error('HTTP 403 / Blockiert');
 }
 
-// Parst eine einzelne HTML-Seite in isolierten Produkt-Kacheln
+function extractPrice(text) {
+  if (!text) return null;
+  // Erkennt sowohl "26,80 €*" als auch Cigarworld "€48.50" oder "ab €6.70"
+  const mAfter = text.match(/(\d{1,4}(?:[.,]\d{3})*[.,]\d{2})\s*\*?\s*(?:€|&euro;|EUR\b)/i);
+  if (mAfter) return `${mAfter[1].replace('.', ',')} €`;
+  const mBefore = text.match(/(?:€|&euro;|EUR)\s*(\d{1,4}[.,]\d{2})/i);
+  if (mBefore) return `${mBefore[1].replace('.', ',')} €`;
+  return null;
+}
+
+// ANCHOR-BOUNDARY-PARSER: Zerschneidet keine Produktkarten mehr!
 function parseProductsFromHtml(html, shop, baseOrigin, seenUrls) {
   const found = [];
 
-  // Entferne Header, Navigation, Footer, damit keine Menü-Links als Produkte gezählt werden
-  const cleanHtml = html
-    .replace(/<(nav|header|footer|aside|script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
+  // Entferne Navigation, Header, Footer, Skripte & Styles
+  const cleanHtml = html.replace(/<(nav|header|footer|aside|script|style|noscript)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
 
-  // Zerlege die Seite anhand typischer Shop-Produktcontainer (Shopware, WooCommerce, JTL, Cigarworld-Tabellen)
-  let cards = cleanHtml.split(/(?=<(?:article|li|div|tr)[^>]*class=["'][^"']*(?:product|item|card|box|artbox|listing|result|type-product)[^"']*["'])/i);
-  if (cards.length < 4) {
-    cards = cleanHtml.split(/(?=<a\s[^>]*href=)/i);
+  // Schritt 1: Finde alle Links auf der Seite mit ihren exakten Positionen
+  const linkRegex = /<a\s+([^>]*href=["']([^"']+)["'][^>]*)>([\s\S]*?)<\/a>/gi;
+  const groups = [];
+  let match;
+
+  while ((match = linkRegex.exec(cleanHtml)) !== null) {
+    const attrs = match[1];
+    const rawHref = match[2].trim();
+    const innerHtml = match[3];
+
+    if (rawHref.length < 4 || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:')) continue;
+    if (/\.(css|js|png|jpg|jpeg|gif|svg|pdf|webp)$/i.test(rawHref)) continue;
+    if (/warenkorb|cart|checkout|login|account|merk|wishlist|impressum|datenschutz|agb|kontakt|versand|widerruf|blog|lexikon|zigarrenkunde/i.test(rawHref)) continue;
+
+    let fullUrl;
+    try {
+      fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
+      fullUrl = fullUrl.split('#')[0];
+    } catch (e) { continue; }
+
+    // Entferne reine Paginierungs-Links (?p=2, _s2, /page/2)
+    if (/[?&]p=\d+|_s\d+$|\/page\/\d+/i.test(fullUrl)) continue;
+
+    const innerText = innerHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const titleAttrMatch = attrs.match(/title=["']([^"']+)["']/i);
+    const altAttrMatch = innerHtml.match(/alt=["']([^"']+)["']/i);
+    const candidateText = [innerText, titleAttrMatch ? titleAttrMatch[1] : '', altAttrMatch ? altAttrMatch[1] : ''].join(' ').trim();
+
+    // Fasse direkt aufeinanderfolgende Links zur selben URL (z.B. Bild + Titel + "Details") zusammen
+    const prevGroup = groups[groups.length - 1];
+    if (prevGroup && prevGroup.url === fullUrl && (match.index - prevGroup.endIndex) < 1500) {
+      prevGroup.endIndex = match.index + match[0].length;
+      if (innerText.length > prevGroup.bestText.length && !/^(details|mehr|ansehen|zum produkt)$/i.test(innerText)) {
+        prevGroup.bestText = innerText;
+      }
+      prevGroup.combinedText += ' ' + candidateText;
+    } else {
+      groups.push({
+        url: fullUrl,
+        startIndex: match.index,
+        endIndex: match.index + match[0].length,
+        bestText: innerText,
+        combinedText: candidateText
+      });
+    }
   }
 
-  for (const card of cards) {
-    if (card.length < 30 || card.length > 15000) continue;
+  // Schritt 2: Filtere echte kubanische Produkt-Anker heraus
+  const productGroups = groups.filter(g => {
+    const brand = detectBrand(g.combinedText) || detectBrand(decodeURIComponent(g.url));
+    if (!brand) return false;
+    // Reine Marken-Kategorieseiten ausschließen (Name muss länger als nur der Markenname sein)
+    const stripped = g.combinedText.replace(/zigarren|kubanische|kuba|details|jetzt kaufen/gi, '').trim();
+    return stripped.length > brand.length + 2;
+  });
 
-    // Finde Produktlink und optionales title-Attribut
-    const linkMatch = card.match(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
-    if (!linkMatch) continue;
+  // Schritt 3: Für jedes Produkt exakt den Bereich zwischen Vor-Produkt und Nach-Produkt auswerten
+  for (let i = 0; i < productGroups.length; i++) {
+    const curr = productGroups[i];
+    if (seenUrls.has(curr.url)) continue;
 
-    const rawHref = linkMatch[1].trim();
-    if (rawHref.length < 5 || rawHref.startsWith('#') || rawHref.startsWith('javascript:')) continue;
-    if (/\.(css|js|png|jpg|jpeg|gif|svg|pdf|webp)$/i.test(rawHref)) continue;
-    if (/warenkorb|cart|checkout|login|account|merk|wishlist|impressum|datenschutz|agb|kontakt|versand|blog|lexikon|wiki/i.test(rawHref)) continue;
+    // Anti-New-World-Filter auf URL
+    if (/dominikan|nicaragua|honduras|brasil|mexiko|costa-rica|panama|cameroon|zubehoer|feuerzeug|aschenbecher|cutter|bohrer|etui/i.test(curr.url)) continue;
 
-    const fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
-    if (seenUrls.has(fullUrl)) continue;
+    const prevEnd = i > 0 ? productGroups[i - 1].endIndex : Math.max(0, curr.startIndex - 600);
+    const nextStart = i < productGroups.length - 1 ? productGroups[i + 1].startIndex : Math.min(cleanHtml.length, curr.endIndex + 1600);
 
-    // Anti-New-World-Filter auf URL-Ebene
-    if (/dominikan|nicaragua|honduras|brasil|mexiko|costa-rica|panama|cameroon|zubehoer|feuerzeug|aschenbecher|humidor|cutter|bohrer/i.test(fullUrl)) continue;
+    // 1. Text NACH dem Produktlink (bis maximal zum nächsten Produkt, max. 1500 Zeichen)
+    const rawAfter = cleanHtml.slice(curr.startIndex, Math.min(nextStart, curr.endIndex + 1500));
+    const afterText = rawAfter.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
-    const text = card.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-    if (text.length < 10) continue;
+    // 2. Kurzer Banner-Text VOR dem Produktlink (für Dalay & Zigarrenschachtel), strikt NACH dem letzten "€" des Vorgängers!
+    const rawBefore = cleanHtml.slice(Math.max(prevEnd, curr.startIndex - 450), curr.startIndex);
+    let beforeText = rawBefore.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const lastEuroIdx = Math.max(beforeText.lastIndexOf('€'), beforeText.lastIndexOf('EUR'));
+    if (lastEuroIdx !== -1) {
+      beforeText = beforeText.slice(lastEuroIdx + 3).trim();
+    }
 
-    // Anti-New-World-Filter auf Text-Ebene
-    if (/dominikanische\s+republik|herkunft:\s*(?:nicaragua|honduras|dominikan)|aus\s+nicaragua|aus\s+honduras/i.test(text)) continue;
+    const fullCardText = `${beforeText} ${curr.combinedText} ${afterText}`.trim();
 
-    const brand = detectBrand(text);
+    // Anti-New-World-Filter im Kartentext
+    if (/dominikanische\s+republik|herkunft:\s*(?:nicaragua|honduras|dominikan)|feuerzeug|aschenbecher|zigarrenetui|lederetui|cutter/i.test(fullCardText)) continue;
+
+    const brand = detectBrand(curr.combinedText) || detectBrand(fullCardText);
     if (!brand) continue;
 
-    // Muss ein echtes Produkt mit Preisangabe sein (verhindert reine Kategorie-Überschriften)
-    const priceMatch = text.match(/(\d{1,4}(?:[.,]\d{3})*[.,]\d{2})\s*\*?\s*(?:€|&euro;|EUR)/i) || text.match(/(?:€|EUR)\s*(\d{1,4}[.,]\d{2})/i);
-    if (!priceMatch) continue;
+    // Preis bestimmen (bei Tabacstore haben restlos ausverkaufte Artikel keinen Preis -> werden als nicht verfügbar erkannt)
+    const price = extractPrice(afterText) || extractPrice(curr.combinedText);
+    const isTabacstoreNoPrice = (shop.id === 'tabacstore' && !price && /kuba/i.test(afterText));
+    if (!price && !isTabacstoreNoPrice) continue;
 
-    // Präzise Verfügbarkeitsprüfung innerhalb dieser isolierten Produktkarte
-    const soldOutRegex = /momentan\s+nicht\s+verf|nicht\s+verf[üu]gbar|nicht\s+lieferbar|nicht\s+auf\s+lager|ausverkauft|vergriffen|sold\s*out|out\s*of\s*stock|liefertermin\s+unbekannt|derzeit\s+nicht|aktuell\s+nicht|wird\s+nachbestellt/i;
-    const inStockRegex = /auf\s+lager|sofort\s+verf|sofort\s+lieferbar|versandfertig|in\s+den\s+warenkorb|alleslieferbar|einige\s+variationen\s+verf/i;
+    // Präzise Verfügbarkeits-Analyse (inkl. Dalay-, Noblego-, Zigarrentraum- & Zigarrenschachtel-Logik)
+    const cleanForStock = fullCardText.replace(/hkr\s+alles:\s*(?:True|False),\s*Teil:\s*(?:AllesLieferbar|True|F)\.?/gi, ' ');
+    const soldOutRegex = /nicht\s+lieferbar|nicht\s+verf[üu]gbar|nicht\s+auf\s+lager|momentan\s+ausverkauft|ausverkauft|vergriffen|sold\s*out|out\s*of\s*stock|demn[äa]chst\s+bei\s+uns|liefertermin\s+unbekannt|derzeit\s+nicht|aktuell\s+nicht|wird\s+nachbestellt/i;
+    const inStockRegex = /auf\s+lager|einige\s+variationen\s+verf[üu]gbar|sofort\s+verf[üu]gbar|sofort\s+lieferbar|versandfertig|in\s+den\s+warenkorb/i;
 
     let inStock = true;
-    if (soldOutRegex.test(text) && !inStockRegex.test(text)) {
+    if (isTabacstoreNoPrice) {
       inStock = false;
-    } else if (soldOutRegex.test(text) && inStockRegex.test(text)) {
-      // Wenn ein Produkt mehrere Varianten (z.B. Einzel = Auf Lager, 25er Kiste = Ausverkauft) hat:
-      inStock = true;
+    } else if (/^(?:[^a-z]*)(?:nicht\s+lieferbar|nicht\s+verf[üu]gbar|demn[äa]chst\s+bei\s+uns)/i.test(beforeText.replace(/hkr\s+alles:[^.]*\./gi, '').trim())) {
+      // Dalay & Zigarrenschachtel: Explizites "Nicht lieferbar" / "nicht verfügbar" im Vor-Banner
+      inStock = false;
+    } else if (soldOutRegex.test(cleanForStock) && !inStockRegex.test(cleanForStock)) {
+      inStock = false;
     }
 
-    // Sauberen Titel extrahieren
-    let linkTitle = linkMatch[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    const titleAttr = card.match(/title=["']([^"']{6,120})["']/i);
-    let cleanTitle = (detectBrand(linkTitle) ? linkTitle : (titleAttr && detectBrand(titleAttr[1]) ? titleAttr[1] : '')).trim();
-
-    if (!cleanTitle) {
-      const bIdx = text.toLowerCase().indexOf(brand.toLowerCase());
-      cleanTitle = text.substring(bIdx, bIdx + 95).split(/€|EUR|inkl\.|Preis|Details|Inhalt:|Artikelnummer|Herkunftsland|Momentan|Auf Lager|Nicht /i)[0].trim();
+    // Sauberen Zigarrentitel bestimmen
+    let cleanTitle = curr.bestText;
+    if (!detectBrand(cleanTitle)) {
+      const bIdx = curr.combinedText.toLowerCase().indexOf(brand.toLowerCase());
+      cleanTitle = bIdx !== -1 ? curr.combinedText.slice(bIdx) : `${brand} ${cleanTitle}`;
     }
+    cleanTitle = cleanTitle
+      .replace(/€\s*\d+[.,]\d+/g, '')
+      .split(/€|EUR|inkl\.|Preis|Details|Inhalt|Artikelnummer|Herkunftsland|Momentan|Auf Lager|Nicht /i)[0]
+      .replace(/\s+/g, ' ')
+      .trim();
+
     if (cleanTitle.length < 5) continue;
 
-    seenUrls.add(fullUrl);
+    seenUrls.add(curr.url);
     found.push({
-      id: `${shop.id}-${Buffer.from(fullUrl).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(-32)}`,
+      id: `${shop.id}-${Buffer.from(curr.url).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(-32)}`,
       shop_id: shop.id,
       shop_name: shop.name,
       title: cleanTitle.slice(0, 130),
       brand,
-      price: `${priceMatch[1].replace('.', ',')} €`,
-      format: /kiste|box|25er|20er|10er|50er|cabinet|dress\s*box|slb|sbn/i.test(text) ? 'Kiste / Box' : 'Einzel / Verfügbar',
-      edition_type: detectEdition(cleanTitle + ' ' + text),
+      price: price || 'Ausverkauft',
+      format: /kiste|box|25er|20er|10er|50er|cabinet|slb|sbn|\b25\s*'/i.test(cleanTitle + ' ' + afterText) ? 'Kiste / Box' : 'Einzel / Verfügbar',
+      edition_type: detectEdition(cleanTitle + ' ' + afterText),
       in_stock: inStock,
-      url: fullUrl
+      url: curr.url
     });
   }
 
@@ -363,56 +517,72 @@ async function scrapeShop(shopConfig) {
   const items = [];
   const baseOrigin = new URL(shopConfig.url).origin;
 
-  // 1. Shopify JSON-API (C-Cigars & Zigarren Herzog)
-  if (shopConfig.url.includes('products.json')) {
-    const res = await withHardTimeout(fetch(shopConfig.url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36' }
-    }), 10000, shopConfig.name);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+  // 1. Shopify JSON-API (C-Cigars & Zigarren Herzog mit allen Marken-Collections)
+  if (shopConfig.type === 'shopify' || shopConfig.url.includes('products.json')) {
+    const jsonUrls = [shopConfig.url, ...(shopConfig.extra_urls || [])];
+    const seenIds = new Set();
+    let pagesScanned = 0;
 
-    for (const p of (data.products || [])) {
-      const brand = detectBrand(p.title + ' ' + (p.vendor || ''));
-      if (!brand) continue;
-      for (const v of (p.variants || [])) {
-        const fullTitle = v.title && v.title !== 'Default Title' ? `${p.title} - ${v.title}` : p.title;
-        items.push({
-          id: `${shopConfig.id}-${v.id}`,
-          shop_id: shopConfig.id,
-          shop_name: shopConfig.name,
-          title: fullTitle.slice(0, 130),
-          brand,
-          price: `${parseFloat(v.price).toFixed(2).replace('.', ',')} €`,
-          format: /kiste|box|25|20|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Einzel / Verfügbar',
-          edition_type: detectEdition(fullTitle),
-          in_stock: Boolean(v.available),
-          url: `${baseOrigin}/products/${p.handle}`
-        });
+    for (let i = 0; i < jsonUrls.length; i += 4) {
+      const batch = jsonUrls.slice(i, i + 4);
+      const resList = await Promise.allSettled(batch.map(u =>
+        withHardTimeout(fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 Chrome/126.0.0.0' } }), 9000, u)
+          .then(r => r.ok ? r.json() : { products: [] })
+      ));
+
+      for (const r of resList) {
+        if (r.status !== 'fulfilled') continue;
+        pagesScanned++;
+        for (const p of (r.value.products || [])) {
+          if (/aschenbecher|feuerzeug|etui|cutter|humidor|bohrer/i.test(p.title + ' ' + (p.product_type || ''))) continue;
+          const brand = detectBrand(p.title + ' ' + (p.vendor || ''));
+          if (!brand) continue;
+
+          // Bei Herzog steht die Marke oft nur in p.vendor -> voranstellen, falls sie im Titel fehlt
+          const baseTitle = detectBrand(p.title) ? p.title : `${brand} ${p.title}`;
+
+          for (const v of (p.variants || [])) {
+            const itemId = `${shopConfig.id}-${v.id}`;
+            if (seenIds.has(itemId)) continue;
+            seenIds.add(itemId);
+
+            const fullTitle = v.title && v.title !== 'Default Title' ? `${baseTitle} - ${v.title}` : baseTitle;
+            items.push({
+              id: itemId,
+              shop_id: shopConfig.id,
+              shop_name: shopConfig.name,
+              title: fullTitle.slice(0, 130),
+              brand,
+              price: `${parseFloat(v.price).toFixed(2).replace('.', ',')} €`,
+              format: /kiste|box|25|20|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Einzel / Verfügbar',
+              edition_type: detectEdition(fullTitle),
+              in_stock: Boolean(v.available),
+              url: `${baseOrigin}/products/${p.handle}`
+            });
+          }
+        }
       }
     }
-    return { items, pagesScanned: 1 };
+    return { items, pagesScanned };
   }
 
-  // 2. HTML-Hauptseite abrufen
+  // 2. HTML-Hauptseite + alle Marken-/Paginierungs-Seiten abrufen
   const seenUrls = new Set();
   const mainHtml = await fetchHtml(shopConfig.url);
   items.push(...parseProductsFromHtml(mainHtml, shopConfig, baseOrigin, seenUrls));
 
-  // 3. Alle Marken-Unterseiten & Paginierungs-Seiten sammeln
   const subUrls = new Set(shopConfig.extra_urls || []);
-
   if (shopConfig.crawl_subpages && shopConfig.subpage_pattern) {
     const hrefRegex = /href=["']([^"']+)["']/gi;
     let m;
     while ((m = hrefRegex.exec(mainHtml)) !== null) {
       const u = m[1].startsWith('http') ? m[1] : `${baseOrigin}${m[1].startsWith('/') ? '' : '/'}${m[1]}`;
       if (shopConfig.subpage_pattern.test(u) && u !== shopConfig.url) {
-        subUrls.add(u);
+        subUrls.add(u.split('#')[0]);
       }
     }
   }
 
-  // Parallel in 4er-Gruppen alle Marken- & Unterseiten abrufen
   const urlList = Array.from(subUrls).slice(0, 35);
   let pagesScanned = 1;
 
@@ -432,9 +602,8 @@ async function scrapeShop(shopConfig) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('=== Starte Habanos Scout Multi-Page & Marken-Scanner ===');
+  console.log('=== Starte Habanos Scout (Anchor-Boundary Engine v3) ===');
 
-  // Synchronisiere immer die verifizierten Shop-URLs in Supabase
   const dbShopsPayload = DEFAULT_SHOPS.map(s => ({
     id: s.id, name: s.name, url: s.url, interval_min: s.interval_min, active: true
   }));
@@ -463,7 +632,6 @@ async function run() {
         const prev = existingMap.get(item.id);
 
         if (!prev) {
-          // Nur auf Lager befindliche oder als Gedächtnis relevante Artikel neu anlegen
           const dropType = item.in_stock
             ? (item.edition_type !== 'Standard' ? 'NEUERSCHEINUNG' : 'NEU GELISTET')
             : 'AUSVERKAUFT';
@@ -476,7 +644,6 @@ async function run() {
             pushCount++;
           }
         } else if (prev.in_stock === false && item.in_stock === true) {
-          // ECHTER RESTOCK: War vorher in der DB auf ausverkauft (false) und ist jetzt wieder lieferbar (true)!
           const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
@@ -486,7 +653,6 @@ async function run() {
             pushCount++;
           }
         } else if (prev.in_stock === true && item.in_stock === false) {
-          // Artikel ist jetzt ausverkauft -> Status in DB auf false setzen, damit künftige Restocks erkannt werden!
           const payload = { ...item, drop_type: 'AUSVERKAUFT', in_stock: false, weekday, hour, found_at: now.toISOString() };
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
@@ -494,7 +660,6 @@ async function run() {
       }
 
       if (toUpsert.length > 0) {
-        // In 100er-Paketen in Supabase speichern
         for (let i = 0; i < toUpsert.length; i += 100) {
           await sbFetch('releases', {
             method: 'POST',
