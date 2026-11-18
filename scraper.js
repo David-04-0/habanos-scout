@@ -1,4 +1,5 @@
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 const SUPABASE_KEY = (process.env.SUPABASE_KEY || '').trim();
@@ -27,7 +28,6 @@ const DEFAULT_SHOPS = [
     id: 'cigarworld',
     name: 'Cigarworld / Casa Benden',
     url: 'https://www.cigarworld.de/zigarren/kuba',
-    require_buy_signal: true,
     verify_details: true,
     crawl_subpages: true,
     subpage_pattern: /\/zigarren\/kuba\/(regulares|limitadas|exclusivos|anos-chinos|reserva|gran-reservas|regionales|especiales|anejados)/i,
@@ -259,6 +259,12 @@ const BRANDS = [
 
 const BRAND_URL_SLUGS = /cohiba|montecristo|partagas|romeo-y-julieta|hoyo-de-monterrey|h_upmann|hoyo_de_monterrey|ramon_allones|sancho_panza|upmann|trinidad|bolivar|ramon-allones|punch|quai-d|vegas-robaina|cuaba|san-cristobal|fonseca|juan-lopez|por-larranaga|rafael-gonzalez|saint-luis-rey|sancho-panza|vegueros|diplomaticos|rey-del-mundo|gloria-cubana|quintero|piedra|flor-de-cano|kuba|cuba|habanos/i;
 
+function makeItemId(shopId, url) {
+  const clean = url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+  const hash = crypto.createHash('md5').update(clean).digest('hex').slice(0, 24);
+  return `${shopId}-${hash}`;
+}
+
 function withHardTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -282,7 +288,6 @@ async function sbFetch(path, options = {}) {
   })(), 12000, 'Supabase');
 }
 
-// WICHTIG: Umgeht das 1.000-Zeilen-Limit von Supabase und lädt ALLE vorhandenen Zigarren!
 async function fetchAllExistingReleases() {
   const allRows = [];
   let offset = 0;
@@ -350,7 +355,6 @@ function isValidShopHtml(txt) {
   return txt && txt.length > 500 && !/<title>403 Forbidden|<title>Access Denied|<title>Just a moment|Error 403/i.test(txt);
 }
 
-// Baut für GeoIP-gesperrte Seiten (wie Zigarrenschachtel) eine Google-Translate-Crawler-URL
 function buildGoogleTranslateProxyUrl(rawUrl) {
   const u = new URL(rawUrl);
   const transHost = u.hostname.replace(/\./g, '-') + '.translate.goog';
@@ -358,7 +362,6 @@ function buildGoogleTranslateProxyUrl(rawUrl) {
   return `https://${transHost}${u.pathname}${u.search}${sep}_x_tr_sl=es&_x_tr_tl=de&_x_tr_hl=de&_x_tr_pto=wapp`;
 }
 
-// Normalisiert Links, die durch den Google-Translate-Proxy gelaufen sind, zurück auf die Original-Shop-Domain
 function normalizeShopUrl(rawHref, baseOrigin) {
   let full = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
   const originHost = new URL(baseOrigin).hostname;
@@ -370,7 +373,6 @@ function normalizeShopUrl(rawHref, baseOrigin) {
   return full.split('#')[0];
 }
 
-// 5-Stufen-Abruf (Direkt -> System-Curl mit DE-IP-Header -> Google-Translate-Crawler -> Jina-HTML -> Proxy)
 async function fetchHtml(url) {
   const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
   try {
@@ -391,7 +393,6 @@ async function fetchHtml(url) {
     if (err.message === 'HTTP 404') throw err;
   }
 
-  // Stufe 2: System-Curl mit HTTP/1.1 & deutschem Forwarded-Header
   try {
     const out = execFileSync('curl', [
       '-sL', '--http1.1', '--compressed', '--max-time', '8',
@@ -405,7 +406,6 @@ async function fetchHtml(url) {
     if (isValidShopHtml(out)) return out;
   } catch (e) {}
 
-  // Stufe 3: Google-Translate-Crawler-Tunnel (umgeht GeoIP-403 bei Zigarrenschachtel)
   try {
     const gUrl = buildGoogleTranslateProxyUrl(url);
     const gRes = await withHardTimeout(fetch(gUrl, {
@@ -417,7 +417,6 @@ async function fetchHtml(url) {
     }
   } catch (e) {}
 
-  // Stufe 4: Jina Headless-Chrome HTML-Relay
   try {
     const jRes = await withHardTimeout(fetch(`https://r.jina.ai/${url}`, {
       headers: { 'User-Agent': ua, 'X-Return-Format': 'html' }
@@ -428,7 +427,6 @@ async function fetchHtml(url) {
     }
   } catch (e) {}
 
-  // Stufe 5: Klassische Proxy-Relays (inkl. JSON-Wrapper von AllOrigins)
   for (const proxyUrl of [
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
@@ -463,12 +461,11 @@ function htmlToVisibleAndMetaText(rawHtml) {
     .trim();
 }
 
-// Entfernt alle negierten Ausdrücke ("nicht lieferbar", "nicht auf Lager"), DAMIT sie niemals als "lieferbar" matchen!
 function stripNegatedStockPhrases(text) {
   if (!text) return '';
   return text
     .replace(/hkr\s+alles:\s*(?:True|False),\s*Teil:\s*(?:AllesLieferbar|True|F)\.?/gi, ' ')
-    .replace(/(?:momentan|derzeit|zur\s*zeit|aktuell|leider|noch)?\s*(?:nicht|keine\s+variante)\s+(?:sofort\s+)?(?:lieferbar|verf[üu]gbar|auf\s+lager|vorr[äa]tig|bestellbar|erh[äa]ltlich)/gi, ' __SOLDOUT__ ')
+    .replace(/(?:momentan|derzeit|zur\s*zeit|aktuell|leider|noch)?\s*(?:nicht|keine\s+variante)\s+(?:sofort\s+)?(?:lieferbar|verf[üu]gbar|auf\s+lager|vorr[äa]tig|bestellbar|erh[äa]ltlich|versandfertig)/gi, ' __SOLDOUT__ ')
     .replace(/liefertermin\s+unbekannt|wird\s+nachbestellt|bald\s+wieder\s+(?:lieferbar|verf[üu]gbar|auf\s+lager)|aktuell\s+ausverkauft|leider\s+ausverkauft|ausverkauft|vergriffen|sold\s*out|out\s*of\s*stock/gi, ' __SOLDOUT__ ');
 }
 
@@ -482,14 +479,16 @@ function extractPrice(text) {
   return null;
 }
 
-// Prüft auf der Produkt-Detailseite verbindlich, ob mindestens eine Variante wirklich in den Warenkorb gelegt werden kann
 async function verifyProductDetail(item) {
   try {
     const html = await fetchHtml(item.url);
-    const mainPart = html
-      .replace(/<(nav|footer|script|style|noscript)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-      .split(/ähnliche\s+produkte|kunden\s+kauften\s+auch|dazu\s+passend|related\s+products|cross-selling|weitere\s+produkte/i)[0];
 
+    // WICHTIG: Schema.org-Check VOR dem Entfernen von <script>-Tags (da JSON-LD in <script> liegt!)
+    const rawBeforeCrossSelling = html.split(/ähnliche\s+produkte|kunden\s+kauften\s+auch|dazu\s+passend|related\s+products|cross-selling|weitere\s+produkte/i)[0];
+    const hasSchemaInStock = /schema\.org\/InStock|"availability"\s*:\s*"[^"]*InStock"/i.test(rawBeforeCrossSelling);
+    const hasSchemaOutOfStock = /schema\.org\/OutOfStock|schema\.org\/SoldOut|schema\.org\/Discontinued|"availability"\s*:\s*"[^"]*(?:OutOfStock|SoldOut)"/i.test(rawBeforeCrossSelling);
+
+    const mainPart = rawBeforeCrossSelling.replace(/<(nav|footer|script|style|noscript)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
     const vis = htmlToVisibleAndMetaText(mainPart);
     const sanitizedVis = stripNegatedStockPhrases(vis);
 
@@ -498,23 +497,16 @@ async function verifyProductDetail(item) {
       if (p) item.price = p;
     }
 
-    // 1. Offizieller Schema.org Standard (wenn eindeutig)
-    const hasSchemaInStock = /schema\.org\/InStock|"availability"\s*:\s*"[^"]*InStock"/i.test(mainPart);
-    const hasSchemaOutOfStock = /schema\.org\/OutOfStock|schema\.org\/SoldOut|schema\.org\/Discontinued|"availability"\s*:\s*"[^"]*(?:OutOfStock|SoldOut)"/i.test(mainPart);
-
     if (hasSchemaOutOfStock && !hasSchemaInStock) return false;
 
-    // 2. Speziell für Cigarworld: Muss einen echten aktiven Warenkorb-Button / grünes Lagersignal ohne Negierung haben
     if (item.shop_id === 'cigarworld') {
-      const hasActiveCartBtn = /in\s+den\s+warenkorb|warenkorb\s+legen/i.test(mainPart) &&
-                               !/btn[^>]*disabled[^>]*>[^<]*warenkorb/i.test(mainPart);
-      const hasPositiveCwStock = /sofort\s+versandfertig|auf\s+lager|sofort\s+lieferbar/i.test(sanitizedVis);
-      return Boolean(hasActiveCartBtn || (hasSchemaInStock && hasPositiveCwStock));
+      const hasActiveCartBtn = /in\s+den\s+warenkorb|warenkorb\s+legen/i.test(mainPart);
+      const hasPositiveCwStock = /sofort\s+versandfertig|sofort\s+lieferbar|auf\s+lager/i.test(sanitizedVis);
+      return Boolean(hasActiveCartBtn || hasPositiveCwStock || hasSchemaInStock);
     }
 
     if (hasSchemaInStock && !hasSchemaOutOfStock) return true;
 
-    // 3. Allgemeine Detailprüfung (mit bereinigtem Text ohne "nicht lieferbar"-Falle!)
     const hasBuyBtn = /in\s+den\s+warenkorb|warenkorb\s+legen|add-to-cart|btn-buy/i.test(mainPart) &&
                       !/btn-buy[^>]*disabled|add-to-cart[^>]*disabled/i.test(mainPart);
     const hasPositiveStock = /sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager|versandfertig|lieferbar\s+in\s+\d|einige\s+variationen\s+verf[üu]gbar/i.test(sanitizedVis) ||
@@ -526,7 +518,6 @@ async function verifyProductDetail(item) {
     if (hasPositiveStock || hasBuyBtn) return true;
     return false;
   } catch (e) {
-    // Wichtig: Bei Netzwerk-Timeout niemals blind "true" melden (verhindert Fehl-Alarme!)
     return false;
   }
 }
@@ -536,9 +527,10 @@ function evaluateOverviewStock(rawBefore, rawAfter, beforeText, fullCardText, sh
 
   const combinedRaw = `${rawBefore} ${rawAfter}`;
   const sanitizedCard = stripNegatedStockPhrases(fullCardText);
+  const sanitizedRaw = stripNegatedStockPhrases(combinedRaw);
 
   const rawSoldOutSignal = /(?:class|id)=["'][^"']*\b(?:out-of-stock|not-available|is-out-of-stock|sold-out|soldout|nostock|no-stock|status-red|status-0|status_0|ampel-rot|ampel_rot|delivery-not-available|badge-soldout)\b|(?:ampel[_-]?rot|status[_-]?0|icon[_-]?red|out[_-]?of[_-]?stock)\.(?:gif|png|svg|jpg)/i.test(rawAfter);
-  const rawBuySignal = /in\s+den\s+warenkorb|add-to-cart|btn-buy|in-stock|is-in-stock|status-green|status-1|status_1|ampel-gruen|ampel_gruen/i.test(combinedRaw);
+  const rawBuySignal = /in\s+den\s+warenkorb|add-to-cart|btn-buy|in-stock|is-in-stock|status-green|status-1|status_1|ampel-gruen|ampel_gruen|sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager/i.test(sanitizedRaw);
 
   const cleanBefore = stripNegatedStockPhrases(beforeText);
   if (cleanBefore.includes('__SOLDOUT__') && !/auf\s+lager|variationen\s+verf[üu]gbar/i.test(cleanBefore)) {
@@ -583,7 +575,6 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
     } catch (e) { continue; }
 
     if (/[?&]p=\d+|_s\d+$|\/page\/\d+/i.test(fullUrl)) continue;
-    // Bei Cigarworld reine Marken-Ordner (ohne Artikelnummer _1234 am Ende) nicht als Einzelzigarre werten
     if (shop.id === 'cigarworld' && !/_\d+$/.test(fullUrl)) continue;
 
     const innerText = htmlToVisibleAndMetaText(innerHtml);
@@ -617,7 +608,8 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
 
   for (let i = 0; i < productGroups.length; i++) {
     const curr = productGroups[i];
-    if (seenUrls.has(curr.url)) continue;
+    const itemId = makeItemId(shop.id, curr.url);
+    if (seenUrls.has(curr.url) || seenUrls.has(itemId)) continue;
 
     if (/dominikan|nicaragua|honduras|brasil|mexiko|costa-rica|panama|cameroon|zubehoer|feuerzeug|aschenbecher|cutter|bohrer|etui/i.test(curr.url)) continue;
 
@@ -660,8 +652,9 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
     if (cleanTitle.length < 5 || cleanTitle.toLowerCase() === brand.toLowerCase()) continue;
 
     seenUrls.add(curr.url);
+    seenUrls.add(itemId);
     found.push({
-      id: `${shop.id}-${Buffer.from(curr.url).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(-32)}`,
+      id: itemId,
       shop_id: shop.id,
       shop_name: shop.name,
       title: cleanTitle.slice(0, 130),
@@ -681,7 +674,6 @@ async function scrapeShop(shopConfig, existingMap) {
   const items = [];
   const baseOrigin = new URL(shopConfig.url).origin;
 
-  // 1. Shopify JSON-API (C-Cigars & Zigarren Herzog)
   if (shopConfig.type === 'shopify' || shopConfig.url.includes('products.json')) {
     const jsonUrls = [shopConfig.url, ...(shopConfig.extra_urls || [])];
     const seenIds = new Set();
@@ -729,7 +721,6 @@ async function scrapeShop(shopConfig, existingMap) {
     return { items, pagesScanned };
   }
 
-  // 2. HTML-Hauptseite + Unterseiten abrufen
   const seenUrls = new Set();
   const mainHtml = await fetchHtml(shopConfig.url);
   items.push(...parseProductsFromHtml(mainHtml, shopConfig, baseOrigin, seenUrls, shopConfig.url));
@@ -772,18 +763,18 @@ async function scrapeShop(shopConfig, existingMap) {
     }
   }
 
-  // 3. STUFE 2 (Detailseiten-Verifikation OHNE 60er-Ping-Pong!)
+  // Dedupliziere items nach ID
+  const uniqueItems = Array.from(new Map(items.map(x => [x.id, x])).values());
+
   if (shopConfig.verify_details) {
-    // Prüfe gezielt alle Artikel, die laut Übersichtsseite in_stock sind UND entweder neu sind oder ihren Status ändern würden
-    const needCheck = items.filter(it => {
+    const needCheck = uniqueItems.filter(it => {
       if (!it.in_stock) return false;
       const prev = existingMap.get(it.id);
       return !prev || prev.in_stock === false || prev.in_stock === true;
     });
 
-    // Sortiere nach ID für 100 % deterministische Reihenfolge (verhindert Ping-Pong zwischen Läufen)
     needCheck.sort((a, b) => a.id.localeCompare(b.id));
-    const batchToVerify = needCheck.slice(0, 130);
+    const batchToVerify = needCheck.slice(0, 140);
     const verifiedIds = new Set(batchToVerify.map(x => x.id));
 
     for (let i = 0; i < batchToVerify.length; i += 6) {
@@ -793,8 +784,7 @@ async function scrapeShop(shopConfig, existingMap) {
       }));
     }
 
-    // Falls ein Shop > 130 Kandidaten hat, behalten die übrigen ihren letzten bekannten DB-Status (kein Flip-Flop!)
-    for (const it of items) {
+    for (const it of uniqueItems) {
       if (it.in_stock && !verifiedIds.has(it.id)) {
         const prev = existingMap.get(it.id);
         it.in_stock = prev ? Boolean(prev.in_stock) : false;
@@ -802,12 +792,12 @@ async function scrapeShop(shopConfig, existingMap) {
     }
   }
 
-  return { items, pagesScanned };
+  return { items: uniqueItems, pagesScanned };
 }
 
 async function run() {
   const startTime = Date.now();
-  console.log('=== Starte Habanos Scout (Full-Memory & Negation-Fix Engine v6) ===');
+  console.log('=== Starte Habanos Scout (Engine v7 - Deduplicated & Schema-Fix) ===');
 
   const dbShopsPayload = DEFAULT_SHOPS.map(s => ({
     id: s.id, name: s.name, url: s.url, interval_min: s.interval_min, active: true
@@ -818,7 +808,6 @@ async function run() {
     body: JSON.stringify(dbShopsPayload)
   });
 
-  // Lädt ALLE Zeilen (>1.000) vollständig aus Supabase!
   const existing = await fetchAllExistingReleases();
   console.log(`Datenbank-Gedächtnis geladen: ${existing.length} bekannte Zigarren.`);
   const existingMap = new Map(existing.map(r => [r.id, r]));
@@ -832,7 +821,7 @@ async function run() {
     try {
       const shopIsInitialized = initializedShops.has(shopConfig.id);
       const { items: foundItems, pagesScanned } = await scrapeShop(shopConfig, existingMap);
-      const toUpsert = [];
+      const toUpsertMap = new Map();
       let pushCount = 0;
       let availableCount = 0;
 
@@ -845,7 +834,7 @@ async function run() {
             ? (item.edition_type !== 'Standard' ? 'NEUERSCHEINUNG' : 'NEU GELISTET')
             : 'AUSVERKAUFT';
           const payload = { ...item, drop_type: dropType, weekday, hour, found_at: now.toISOString() };
-          toUpsert.push(payload);
+          toUpsertMap.set(payload.id, payload);
           existingMap.set(item.id, payload);
 
           if (shopIsInitialized && item.in_stock && pushCount < 4) {
@@ -863,7 +852,7 @@ async function run() {
           const reallyAvailable = shopConfig.type === 'shopify' ? true : await verifyProductDetail(item);
           if (reallyAvailable) {
             const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
-            toUpsert.push(payload);
+            toUpsertMap.set(payload.id, payload);
             existingMap.set(item.id, payload);
             if (pushCount < 5) {
               await sendPush(payload, true);
@@ -874,11 +863,13 @@ async function run() {
           }
         } else if (prev.in_stock === true && item.in_stock === false) {
           const payload = { ...item, drop_type: 'AUSVERKAUFT', in_stock: false, weekday, hour, found_at: now.toISOString() };
-          toUpsert.push(payload);
+          toUpsertMap.set(payload.id, payload);
           existingMap.set(item.id, payload);
         }
       }
 
+      // 100 % dedupliziertes Array (verhindert Supabase 21000 Fehler garantiert!)
+      const toUpsert = Array.from(toUpsertMap.values());
       if (toUpsert.length > 0) {
         for (let i = 0; i < toUpsert.length; i += 100) {
           await sbFetch('releases', {
