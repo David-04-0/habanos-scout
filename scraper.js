@@ -27,6 +27,7 @@ const DEFAULT_SHOPS = [
     id: 'cigarworld',
     name: 'Cigarworld / Casa Benden',
     url: 'https://www.cigarworld.de/zigarren/kuba',
+    require_buy_signal: true,
     verify_details: true,
     crawl_subpages: true,
     subpage_pattern: /\/zigarren\/kuba\/(regulares|limitadas|exclusivos|anos-chinos|reserva|gran-reservas|regionales|especiales|anejados)/i,
@@ -121,6 +122,7 @@ const DEFAULT_SHOPS = [
     id: 'zigarrede',
     name: 'Zigarre.de',
     url: 'https://www.zigarre.de/kubanische-zigarren.html',
+    require_buy_signal: true,
     verify_details: true,
     crawl_subpages: true,
     crawl_brands: true,
@@ -175,9 +177,16 @@ const DEFAULT_SHOPS = [
     name: 'Zigarrenschachtel',
     url: 'https://www.zigarrenschachtel.de/kubanische-zigarren',
     extra_urls: [
+      'https://www.zigarrenschachtel.de/cohiba-zigarren',
+      'https://www.zigarrenschachtel.de/montecristo-zigarren',
+      'https://www.zigarrenschachtel.de/partagas-zigarren',
+      'https://www.zigarrenschachtel.de/romeo-y-julieta-zigarren',
+      'https://www.zigarrenschachtel.de/h-upmann-zigarren',
+      'https://www.zigarrenschachtel.de/hoyo-de-monterrey-zigarren',
+      'https://www.zigarrenschachtel.de/bolivar-zigarren',
+      'https://www.zigarrenschachtel.de/trinidad-zigarren',
       'https://www.zigarrenschachtel.de/kubanische-zigarren_s2',
-      'https://www.zigarrenschachtel.de/kubanische-zigarren_s3',
-      'https://www.zigarrenschachtel.de/kubanische-zigarren_s4'
+      'https://www.zigarrenschachtel.de/kubanische-zigarren_s3'
     ],
     interval_min: 5
   },
@@ -224,6 +233,7 @@ const DEFAULT_SHOPS = [
     name: 'Cigarrenversand24',
     url: 'https://www.cigarrenversand24.de/Cigarren-Welt/',
     allow_no_price: true,
+    verify_details: true,
     crawl_subpages: true,
     crawl_brands: true,
     interval_min: 10
@@ -232,9 +242,6 @@ const DEFAULT_SHOPS = [
     id: 'tabakkontor',
     name: 'Tabak Kontor Leipzig',
     url: 'https://www.tabak-kontor.de/',
-    allow_no_price: true,
-    crawl_subpages: true,
-    crawl_brands: true,
     interval_min: 15
   }
 ];
@@ -250,7 +257,7 @@ const BRANDS = [
   'La Flor de Cano', 'Flor de Cano', 'Guantanamera', 'Cabañas', 'Cabanas'
 ];
 
-const BRAND_URL_SLUGS = /cohiba|montecristo|partagas|romeo-y-julieta|hoyo-de-monterrey|upmann|trinidad|bolivar|ramon-allones|punch|quai-d|vegas-robaina|cuaba|san-cristobal|fonseca|juan-lopez|por-larranaga|rafael-gonzalez|saint-luis-rey|sancho-panza|vegueros|diplomaticos|rey-del-mundo|gloria-cubana|quintero|piedra|flor-de-cano|kuba|cuba|habanos/i;
+const BRAND_URL_SLUGS = /cohiba|montecristo|partagas|romeo-y-julieta|hoyo-de-monterrey|h_upmann|hoyo_de_monterrey|ramon_allones|sancho_panza|upmann|trinidad|bolivar|ramon-allones|punch|quai-d|vegas-robaina|cuaba|san-cristobal|fonseca|juan-lopez|por-larranaga|rafael-gonzalez|saint-luis-rey|sancho-panza|vegueros|diplomaticos|rey-del-mundo|gloria-cubana|quintero|piedra|flor-de-cano|kuba|cuba|habanos/i;
 
 function withHardTimeout(promise, ms, label) {
   let timer;
@@ -272,7 +279,22 @@ async function sbFetch(path, options = {}) {
     const text = await res.text();
     if (!res.ok) throw new Error(`Supabase (${res.status}): ${text}`);
     return text ? JSON.parse(text) : [];
-  })(), 10000, 'Supabase');
+  })(), 12000, 'Supabase');
+}
+
+// WICHTIG: Umgeht das 1.000-Zeilen-Limit von Supabase und lädt ALLE vorhandenen Zigarren!
+async function fetchAllExistingReleases() {
+  const allRows = [];
+  let offset = 0;
+  const pageSize = 1000;
+  while (true) {
+    const chunk = await sbFetch(`releases?select=id,shop_id,in_stock,price&order=id.asc&limit=${pageSize}&offset=${offset}`);
+    if (!Array.isArray(chunk) || chunk.length === 0) break;
+    allRows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    offset += pageSize;
+  }
+  return allRows;
 }
 
 function detectBrand(text) {
@@ -328,7 +350,27 @@ function isValidShopHtml(txt) {
   return txt && txt.length > 500 && !/<title>403 Forbidden|<title>Access Denied|<title>Just a moment|Error 403/i.test(txt);
 }
 
-// 3-Stufen-Abruf (Direkt -> System-Curl -> Bewährte Proxy-Relays aus v3)
+// Baut für GeoIP-gesperrte Seiten (wie Zigarrenschachtel) eine Google-Translate-Crawler-URL
+function buildGoogleTranslateProxyUrl(rawUrl) {
+  const u = new URL(rawUrl);
+  const transHost = u.hostname.replace(/\./g, '-') + '.translate.goog';
+  const sep = u.search ? '&' : '?';
+  return `https://${transHost}${u.pathname}${u.search}${sep}_x_tr_sl=es&_x_tr_tl=de&_x_tr_hl=de&_x_tr_pto=wapp`;
+}
+
+// Normalisiert Links, die durch den Google-Translate-Proxy gelaufen sind, zurück auf die Original-Shop-Domain
+function normalizeShopUrl(rawHref, baseOrigin) {
+  let full = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
+  const originHost = new URL(baseOrigin).hostname;
+  const transHost = originHost.replace(/\./g, '-') + '.translate.goog';
+  if (full.includes(transHost)) {
+    full = full.replace(transHost, originHost);
+  }
+  full = full.replace(/[?&]_x_tr_[^&#]+/g, '').replace(/\?&/, '?').replace(/[?&]$/, '');
+  return full.split('#')[0];
+}
+
+// 5-Stufen-Abruf (Direkt -> System-Curl mit DE-IP-Header -> Google-Translate-Crawler -> Jina-HTML -> Proxy)
 async function fetchHtml(url) {
   const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
   try {
@@ -338,7 +380,7 @@ async function fetchHtml(url) {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8'
       }
-    }), 8500, url);
+    }), 8000, url);
 
     if (res.ok) {
       const txt = await res.text();
@@ -349,29 +391,58 @@ async function fetchHtml(url) {
     if (err.message === 'HTTP 404') throw err;
   }
 
-  // Stufe 2: System-Curl
+  // Stufe 2: System-Curl mit HTTP/1.1 & deutschem Forwarded-Header
   try {
     const out = execFileSync('curl', [
-      '-sL', '--compressed', '--max-time', '8',
+      '-sL', '--http1.1', '--compressed', '--max-time', '8',
       '-A', ua,
+      '-e', 'https://www.google.de/',
       '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       '-H', 'Accept-Language: de-DE,de;q=0.9',
+      '-H', 'X-Forwarded-For: 80.187.108.42',
       url
     ], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
     if (isValidShopHtml(out)) return out;
   } catch (e) {}
 
-  // Stufe 3: Proxy-Relays (mit kurzer Pause gegen Rate-Limits bei 403-Shops)
-  await new Promise(r => setTimeout(r, 350));
+  // Stufe 3: Google-Translate-Crawler-Tunnel (umgeht GeoIP-403 bei Zigarrenschachtel)
+  try {
+    const gUrl = buildGoogleTranslateProxyUrl(url);
+    const gRes = await withHardTimeout(fetch(gUrl, {
+      headers: { 'User-Agent': ua, 'Accept-Language': 'de-DE,de;q=0.9' }
+    }), 9000, 'GoogleProxy');
+    if (gRes.ok) {
+      const gTxt = await gRes.text();
+      if (isValidShopHtml(gTxt)) return gTxt;
+    }
+  } catch (e) {}
+
+  // Stufe 4: Jina Headless-Chrome HTML-Relay
+  try {
+    const jRes = await withHardTimeout(fetch(`https://r.jina.ai/${url}`, {
+      headers: { 'User-Agent': ua, 'X-Return-Format': 'html' }
+    }), 9000, 'JinaRelay');
+    if (jRes.ok) {
+      const jTxt = await jRes.text();
+      if (isValidShopHtml(jTxt)) return jTxt;
+    }
+  } catch (e) {}
+
+  // Stufe 5: Klassische Proxy-Relays (inkl. JSON-Wrapper von AllOrigins)
   for (const proxyUrl of [
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
   ]) {
     try {
       const pRes = await withHardTimeout(fetch(proxyUrl, { headers: { 'User-Agent': ua } }), 9000, 'Proxy');
       if (pRes.ok) {
-        const txt = await pRes.text();
-        if (isValidShopHtml(txt)) return txt;
+        if (proxyUrl.includes('/get?url=')) {
+          const data = await pRes.json();
+          if (data && isValidShopHtml(data.contents)) return data.contents;
+        } else {
+          const txt = await pRes.text();
+          if (isValidShopHtml(txt)) return txt;
+        }
       }
     } catch (e) {}
   }
@@ -382,7 +453,6 @@ async function fetchHtml(url) {
 function htmlToVisibleAndMetaText(rawHtml) {
   if (!rawHtml) return '';
   return rawHtml
-    // Verbinde getrennte Preis-Spans wie <span>24</span><span>,50</span> vor dem Tag-Strip
     .replace(/(\d)<\/span>\s*<span[^>]*>([.,]\d{2})/gi, '$1$2')
     .replace(/\b(?:alt|title|aria-label|data-original-title)=["']([^"']+)["']/gi, ' $1 ')
     .replace(/<[^>]+>/g, ' ')
@@ -391,6 +461,15 @@ function htmlToVisibleAndMetaText(rawHtml) {
     .replace(/&#8364;/g, '€')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Entfernt alle negierten Ausdrücke ("nicht lieferbar", "nicht auf Lager"), DAMIT sie niemals als "lieferbar" matchen!
+function stripNegatedStockPhrases(text) {
+  if (!text) return '';
+  return text
+    .replace(/hkr\s+alles:\s*(?:True|False),\s*Teil:\s*(?:AllesLieferbar|True|F)\.?/gi, ' ')
+    .replace(/(?:momentan|derzeit|zur\s*zeit|aktuell|leider|noch)?\s*(?:nicht|keine\s+variante)\s+(?:sofort\s+)?(?:lieferbar|verf[üu]gbar|auf\s+lager|vorr[äa]tig|bestellbar|erh[äa]ltlich)/gi, ' __SOLDOUT__ ')
+    .replace(/liefertermin\s+unbekannt|wird\s+nachbestellt|bald\s+wieder\s+(?:lieferbar|verf[üu]gbar|auf\s+lager)|aktuell\s+ausverkauft|leider\s+ausverkauft|ausverkauft|vergriffen|sold\s*out|out\s*of\s*stock/gi, ' __SOLDOUT__ ');
 }
 
 function extractPrice(text) {
@@ -403,49 +482,52 @@ function extractPrice(text) {
   return null;
 }
 
-// Prüft auf der Produkt-Detailseite (wie beim echten Klick), ob der Artikel wirklich lieferbar ist!
+// Prüft auf der Produkt-Detailseite verbindlich, ob mindestens eine Variante wirklich in den Warenkorb gelegt werden kann
 async function verifyProductDetail(item) {
   try {
     const html = await fetchHtml(item.url);
     const mainPart = html
       .replace(/<(nav|footer|script|style|noscript)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-      .split(/ähnliche\s+produkte|kunden\s+kauften\s+auch|dazu\s+passend|related\s+products|cross-selling/i)[0];
+      .split(/ähnliche\s+produkte|kunden\s+kauften\s+auch|dazu\s+passend|related\s+products|cross-selling|weitere\s+produkte/i)[0];
 
-    // Preis nachladen, falls auf der Übersichtsseite "Auf Lager" oder "Ausführung wählen" stand
+    const vis = htmlToVisibleAndMetaText(mainPart);
+    const sanitizedVis = stripNegatedStockPhrases(vis);
+
     if (!item.price || item.price === 'Auf Lager' || item.price === 'Ausverkauft') {
-      const p = extractPrice(htmlToVisibleAndMetaText(mainPart));
+      const p = extractPrice(vis);
       if (p) item.price = p;
     }
 
-    // 1. Offizieller Schema.org / Microdata / JSON-LD Standard (Shopware, JTL, Oxid, WooCommerce)
-    const hasSchemaInStock = /schema\.org\/InStock|"availability"\s*:\s*"[^"]*InStock"/i.test(html);
-    const hasSchemaOutOfStock = /schema\.org\/OutOfStock|schema\.org\/SoldOut|schema\.org\/Discontinued|"availability"\s*:\s*"[^"]*(?:OutOfStock|SoldOut)"/i.test(html);
+    // 1. Offizieller Schema.org Standard (wenn eindeutig)
+    const hasSchemaInStock = /schema\.org\/InStock|"availability"\s*:\s*"[^"]*InStock"/i.test(mainPart);
+    const hasSchemaOutOfStock = /schema\.org\/OutOfStock|schema\.org\/SoldOut|schema\.org\/Discontinued|"availability"\s*:\s*"[^"]*(?:OutOfStock|SoldOut)"/i.test(mainPart);
 
     if (hasSchemaOutOfStock && !hasSchemaInStock) return false;
-    if (hasSchemaInStock && !hasSchemaOutOfStock) return true;
 
-    // 2. Speziell für Cigarworld (hat auf Detailseiten mehrere Gebinde-Zeilen)
+    // 2. Speziell für Cigarworld: Muss einen echten aktiven Warenkorb-Button / grünes Lagersignal ohne Negierung haben
     if (item.shop_id === 'cigarworld') {
-      const hasCwBuy = /in\s+den\s+warenkorb|sofort\s+versandfertig|auf\s+lager|lieferbar/i.test(mainPart) &&
-                       !/alle\s+variationen\s+ausverkauft/i.test(mainPart);
-      const cwAllSoldOut = !/in\s+den\s+warenkorb|warenkorb\s+legen/i.test(mainPart) &&
-                           /nicht\s+lieferbar|ausverkauft|vergriffen/i.test(mainPart);
-      if (cwAllSoldOut) return false;
-      return hasCwBuy;
+      const hasActiveCartBtn = /in\s+den\s+warenkorb|warenkorb\s+legen/i.test(mainPart) &&
+                               !/btn[^>]*disabled[^>]*>[^<]*warenkorb/i.test(mainPart);
+      const hasPositiveCwStock = /sofort\s+versandfertig|auf\s+lager|sofort\s+lieferbar/i.test(sanitizedVis);
+      return Boolean(hasActiveCartBtn || (hasSchemaInStock && hasPositiveCwStock));
     }
 
-    const vis = htmlToVisibleAndMetaText(mainPart);
-    const hasBuyBtn = /in\s+den\s+warenkorb|warenkorb\s+legen|add-to-cart|btn-buy|jetzt\s+kaufen/i.test(mainPart) &&
-                      !/btn-buy[^>]*disabled|add-to-cart[^>]*disabled/i.test(mainPart);
-    const hasGreenText = /sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager|versandfertig|lieferbar\s+in\s+\d|ampel[_-]?gruen|status[_-]?1|status[_-]?green/i.test(mainPart + ' ' + vis);
-    const hasRedText = /nicht\s+lieferbar|zur\s*zeit\s+nicht|derzeit\s+nicht|momentan\s+nicht|nicht\s+verf[üu]gbar|nicht\s+auf\s+lager|ausverkauft|vergriffen|liefertermin\s+unbekannt|ampel[_-]?rot|status[_-]?0|status[_-]?red/i.test(mainPart + ' ' + vis);
+    if (hasSchemaInStock && !hasSchemaOutOfStock) return true;
 
-    if (hasRedText && !hasGreenText && !hasBuyBtn) return false;
-    if (hasGreenText || hasBuyBtn) return true;
+    // 3. Allgemeine Detailprüfung (mit bereinigtem Text ohne "nicht lieferbar"-Falle!)
+    const hasBuyBtn = /in\s+den\s+warenkorb|warenkorb\s+legen|add-to-cart|btn-buy/i.test(mainPart) &&
+                      !/btn-buy[^>]*disabled|add-to-cart[^>]*disabled/i.test(mainPart);
+    const hasPositiveStock = /sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager|versandfertig|lieferbar\s+in\s+\d|einige\s+variationen\s+verf[üu]gbar/i.test(sanitizedVis) ||
+                             /ampel[_-]?gruen|status[_-]?1|status[_-]?green/i.test(mainPart);
+    const hasSoldOutMarker = sanitizedVis.includes('__SOLDOUT__') ||
+                             /ampel[_-]?rot|status[_-]?0|status[_-]?red|out-of-stock|not-available/i.test(mainPart);
+
+    if (hasSoldOutMarker && !hasPositiveStock && !hasBuyBtn) return false;
+    if (hasPositiveStock || hasBuyBtn) return true;
     return false;
   } catch (e) {
-    // Bei Verbindungsabbruch im Zweifel den Status der Übersichtsseite behalten
-    return item.in_stock;
+    // Wichtig: Bei Netzwerk-Timeout niemals blind "true" melden (verhindert Fehl-Alarme!)
+    return false;
   }
 }
 
@@ -453,22 +535,21 @@ function evaluateOverviewStock(rawBefore, rawAfter, beforeText, fullCardText, sh
   if (isTabacstoreNoPrice) return false;
 
   const combinedRaw = `${rawBefore} ${rawAfter}`;
-  const cleanForStock = fullCardText.replace(/hkr\s+alles:\s*(?:True|False),\s*Teil:\s*(?:AllesLieferbar|True|F)\.?/gi, ' ');
+  const sanitizedCard = stripNegatedStockPhrases(fullCardText);
 
   const rawSoldOutSignal = /(?:class|id)=["'][^"']*\b(?:out-of-stock|not-available|is-out-of-stock|sold-out|soldout|nostock|no-stock|status-red|status-0|status_0|ampel-rot|ampel_rot|delivery-not-available|badge-soldout)\b|(?:ampel[_-]?rot|status[_-]?0|icon[_-]?red|out[_-]?of[_-]?stock)\.(?:gif|png|svg|jpg)/i.test(rawAfter);
-  const rawBuySignal = /in\s+den\s+warenkorb|add-to-cart|btn-buy|in-stock|is-in-stock|status-green|status-1|status_1|ampel-gruen|ampel_gruen|sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager/i.test(combinedRaw);
+  const rawBuySignal = /in\s+den\s+warenkorb|add-to-cart|btn-buy|in-stock|is-in-stock|status-green|status-1|status_1|ampel-gruen|ampel_gruen/i.test(combinedRaw);
 
-  const cleanBefore = beforeText.replace(/hkr\s+alles:[^.]*\./gi, '').trim();
-  if (/^(?:[^a-zäöüß]*)(?:nicht\s+lieferbar|nicht\s+verf[üu]gbar|demn[äa]chst\s+bei\s+uns|momentan\s+nicht)/i.test(cleanBefore)) {
+  const cleanBefore = stripNegatedStockPhrases(beforeText);
+  if (cleanBefore.includes('__SOLDOUT__') && !/auf\s+lager|variationen\s+verf[üu]gbar/i.test(cleanBefore)) {
     return false;
   }
 
-  const soldOutTextRegex = /nicht\s+lieferbar|zur\s*zeit\s+nicht|derzeit\s+nicht|aktuell\s+nicht|momentan\s+nicht|nicht\s+verf[üu]gbar|nicht\s+auf\s+lager|leider\s+ausverkauft|ausverkauft|vergriffen|sold\s*out|out\s*of\s*stock|demn[äa]chst\s+bei\s+uns|liefertermin\s+unbekannt|wird\s+nachbestellt|artikel\s+ist\s+ausverkauft|bald\s+wieder\s+verf/i;
   const inStockTextRegex = /auf\s+lager|einige\s+variationen\s+verf[üu]gbar|sofort\s+verf[üu]gbar|sofort\s+lieferbar|versandfertig|in\s+den\s+warenkorb|lieferbar\s+in\s+\d/i;
 
-  if (rawSoldOutSignal && !inStockTextRegex.test(cleanForStock)) return false;
-  if (soldOutTextRegex.test(cleanForStock) && !inStockTextRegex.test(cleanForStock)) return false;
-  if (shop.require_buy_signal && !rawBuySignal && !inStockTextRegex.test(cleanForStock)) return false;
+  if (rawSoldOutSignal && !inStockTextRegex.test(sanitizedCard)) return false;
+  if (sanitizedCard.includes('__SOLDOUT__') && !inStockTextRegex.test(sanitizedCard)) return false;
+  if (shop.require_buy_signal && !rawBuySignal && !inStockTextRegex.test(sanitizedCard)) return false;
 
   return true;
 }
@@ -498,11 +579,12 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
 
     let fullUrl;
     try {
-      fullUrl = rawHref.startsWith('http') ? rawHref : `${baseOrigin}${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
-      fullUrl = fullUrl.split('#')[0];
+      fullUrl = normalizeShopUrl(rawHref, baseOrigin);
     } catch (e) { continue; }
 
     if (/[?&]p=\d+|_s\d+$|\/page\/\d+/i.test(fullUrl)) continue;
+    // Bei Cigarworld reine Marken-Ordner (ohne Artikelnummer _1234 am Ende) nicht als Einzelzigarre werten
+    if (shop.id === 'cigarworld' && !/_\d+$/.test(fullUrl)) continue;
 
     const innerText = htmlToVisibleAndMetaText(innerHtml);
     const titleAttrMatch = attrs.match(/title=["']([^"']+)["']/i);
@@ -661,8 +743,7 @@ async function scrapeShop(shopConfig, existingMap) {
       if (raw.startsWith('#') || raw.startsWith('javascript:')) continue;
       let u;
       try {
-        u = raw.startsWith('http') ? raw : `${baseOrigin}${raw.startsWith('/') ? '' : '/'}${raw}`;
-        u = u.split('#')[0];
+        u = normalizeShopUrl(raw, baseOrigin);
       } catch (e) { continue; }
 
       if (!u.startsWith(baseOrigin) || u === shopConfig.url) continue;
@@ -691,29 +772,32 @@ async function scrapeShop(shopConfig, existingMap) {
     }
   }
 
-  // 3. STUFE 2 (Detailseiten-Verifikation): Prüft Kandidaten direkt auf ihrer Produktseite
+  // 3. STUFE 2 (Detailseiten-Verifikation OHNE 60er-Ping-Pong!)
   if (shopConfig.verify_details) {
-    const toVerify = items.filter(it => {
+    // Prüfe gezielt alle Artikel, die laut Übersichtsseite in_stock sind UND entweder neu sind oder ihren Status ändern würden
+    const needCheck = items.filter(it => {
       if (!it.in_stock) return false;
       const prev = existingMap.get(it.id);
-      // Prüfe alle neuen Artikel, Restock-Kandidaten oder bisher als verfügbar gelistete Artikel
       return !prev || prev.in_stock === false || prev.in_stock === true;
-    }).slice(0, 60);
+    });
 
-    for (let i = 0; i < toVerify.length; i += 6) {
-      const batch = toVerify.slice(i, i + 6);
+    // Sortiere nach ID für 100 % deterministische Reihenfolge (verhindert Ping-Pong zwischen Läufen)
+    needCheck.sort((a, b) => a.id.localeCompare(b.id));
+    const batchToVerify = needCheck.slice(0, 130);
+    const verifiedIds = new Set(batchToVerify.map(x => x.id));
+
+    for (let i = 0; i < batchToVerify.length; i += 6) {
+      const batch = batchToVerify.slice(i, i + 6);
       await Promise.allSettled(batch.map(async (it) => {
         it.in_stock = await verifyProductDetail(it);
       }));
     }
-    // Falls Cigarworld > 60 Treffer hat, nicht ungeprüft als "verfügbar" durchwinken
-    if (toVerify.length === 60) {
-      const verifiedSet = new Set(toVerify.map(x => x.id));
-      for (const it of items) {
-        if (it.in_stock && !verifiedSet.has(it.id)) {
-          const prev = existingMap.get(it.id);
-          it.in_stock = prev ? Boolean(prev.in_stock) : false;
-        }
+
+    // Falls ein Shop > 130 Kandidaten hat, behalten die übrigen ihren letzten bekannten DB-Status (kein Flip-Flop!)
+    for (const it of items) {
+      if (it.in_stock && !verifiedIds.has(it.id)) {
+        const prev = existingMap.get(it.id);
+        it.in_stock = prev ? Boolean(prev.in_stock) : false;
       }
     }
   }
@@ -723,7 +807,7 @@ async function scrapeShop(shopConfig, existingMap) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('=== Starte Habanos Scout (Deep-Verify Engine v5) ===');
+  console.log('=== Starte Habanos Scout (Full-Memory & Negation-Fix Engine v6) ===');
 
   const dbShopsPayload = DEFAULT_SHOPS.map(s => ({
     id: s.id, name: s.name, url: s.url, interval_min: s.interval_min, active: true
@@ -734,9 +818,11 @@ async function run() {
     body: JSON.stringify(dbShopsPayload)
   });
 
-  const existing = await sbFetch('releases?select=id,shop_id,in_stock,price');
-  const existingMap = new Map((existing || []).map(r => [r.id, r]));
-  const initializedShops = new Set((existing || []).map(r => r.shop_id));
+  // Lädt ALLE Zeilen (>1.000) vollständig aus Supabase!
+  const existing = await fetchAllExistingReleases();
+  console.log(`Datenbank-Gedächtnis geladen: ${existing.length} bekannte Zigarren.`);
+  const existingMap = new Map(existing.map(r => [r.id, r]));
+  const initializedShops = new Set(existing.map(r => r.shop_id));
 
   const now = new Date();
   const weekday = (now.getDay() + 6) % 7;
@@ -744,7 +830,6 @@ async function run() {
 
   for (const shopConfig of DEFAULT_SHOPS) {
     try {
-      // Wenn dieser Shop vorher noch 0 Einträge in Supabase hatte -> Erst-Einlesung (kein Push-Spam!)
       const shopIsInitialized = initializedShops.has(shopConfig.id);
       const { items: foundItems, pagesScanned } = await scrapeShop(shopConfig, existingMap);
       const toUpsert = [];
@@ -763,7 +848,6 @@ async function run() {
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
 
-          // Vor jedem Push noch einmal verbindlich die Produktseite prüfen!
           if (shopIsInitialized && item.in_stock && pushCount < 4) {
             const reallyAvailable = shopConfig.type === 'shopify' ? true : await verifyProductDetail(payload);
             if (reallyAvailable) {
@@ -776,7 +860,6 @@ async function run() {
             }
           }
         } else if (prev.in_stock === false && item.in_stock === true) {
-          // Echter Restock: Vor dem Push zwingend auf der Detailseite gegenprüfen!
           const reallyAvailable = shopConfig.type === 'shopify' ? true : await verifyProductDetail(item);
           if (reallyAvailable) {
             const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
