@@ -9,7 +9,7 @@ const DEFAULT_SHOPS = [
     id: 'wolsdorff',
     name: 'Wolsdorff',
     url: 'https://wolsdorff.shop/zigarren/nach-herkunft/kuba/',
-    require_buy_signal: true,
+    verify_details: true,
     extra_urls: [
       'https://wolsdorff.shop/kuba-freitag',
       'https://wolsdorff.shop/zigarren/entdecken/kubanische-zigarren/',
@@ -27,6 +27,7 @@ const DEFAULT_SHOPS = [
     id: 'cigarworld',
     name: 'Cigarworld / Casa Benden',
     url: 'https://www.cigarworld.de/zigarren/kuba',
+    verify_details: true,
     crawl_subpages: true,
     subpage_pattern: /\/zigarren\/kuba\/(regulares|limitadas|exclusivos|anos-chinos|reserva|gran-reservas|regionales|especiales|anejados)/i,
     interval_min: 5
@@ -101,7 +102,7 @@ const DEFAULT_SHOPS = [
     id: 'paulbugge',
     name: 'Paul Bugge',
     url: 'https://www.paul-bugge.com/kubanische-zigarren',
-    require_buy_signal: true,
+    verify_details: true,
     extra_urls: [
       'https://www.paul-bugge.com/cohiba-zigarren',
       'https://www.paul-bugge.com/montecristo-zigarren',
@@ -119,18 +120,19 @@ const DEFAULT_SHOPS = [
   {
     id: 'zigarrede',
     name: 'Zigarre.de',
-    url: 'https://www.zigarre.de/zigarren/kuba/',
+    url: 'https://www.zigarre.de/kubanische-zigarren.html',
+    verify_details: true,
     crawl_subpages: true,
     crawl_brands: true,
     extra_urls: [
-      'https://www.zigarre.de/zigarren/kuba/cohiba/',
-      'https://www.zigarre.de/zigarren/kuba/montecristo/',
-      'https://www.zigarre.de/zigarren/kuba/partagas/',
-      'https://www.zigarre.de/zigarren/kuba/romeo-y-julieta/',
-      'https://www.zigarre.de/zigarren/kuba/hoyo-de-monterrey/',
-      'https://www.zigarre.de/zigarren/kuba/h-upmann/',
-      'https://www.zigarre.de/zigarren/kuba/trinidad/',
-      'https://www.zigarre.de/zigarren/kuba/bolivar/'
+      'https://www.zigarre.de/cohiba.html',
+      'https://www.zigarre.de/montecristo.html',
+      'https://www.zigarre.de/partagas.html',
+      'https://www.zigarre.de/romeo-y-julieta.html',
+      'https://www.zigarre.de/hoyo-de-monterrey.html',
+      'https://www.zigarre.de/h-upmann.html',
+      'https://www.zigarre.de/trinidad.html',
+      'https://www.zigarre.de/bolivar.html'
     ],
     interval_min: 5
   },
@@ -146,6 +148,7 @@ const DEFAULT_SHOPS = [
     id: 'brinkmann',
     name: 'Brinkmann finest',
     url: 'https://brinkmannfinest.de/zigarren/herkunft/kuba/',
+    verify_details: true,
     extra_urls: [
       'https://brinkmannfinest.de/zigarren/herkunft/kuba/?p=2',
       'https://brinkmannfinest.de/zigarren/herkunft/kuba/?p=3',
@@ -174,20 +177,22 @@ const DEFAULT_SHOPS = [
     extra_urls: [
       'https://www.zigarrenschachtel.de/kubanische-zigarren_s2',
       'https://www.zigarrenschachtel.de/kubanische-zigarren_s3',
-      'https://www.zigarrenschachtel.de/kubanische-zigarren_s4',
-      'https://www.zigarrenschachtel.de/kubanische-zigarren_s5'
+      'https://www.zigarrenschachtel.de/kubanische-zigarren_s4'
     ],
     interval_min: 5
   },
   {
     id: 'pipehouse',
     name: 'Pipe House',
-    url: 'https://www.pipehouse.de/zigarren/kuba/',
+    url: 'https://pipehouse.de/cigarren/kubanische-zigarren/',
+    allow_no_price: true,
+    verify_details: true,
     crawl_subpages: true,
     crawl_brands: true,
     extra_urls: [
-      'https://pipehouse.de/cigarren/kubanische-zigarren/',
-      'https://pipehouse.de/herkunft/cuba/'
+      'https://pipehouse.de/herkunft/cuba/',
+      'https://pipehouse.de/herkunft/cuba/page/2/',
+      'https://pipehouse.de/herkunft/cuba/page/3/'
     ],
     interval_min: 10
   },
@@ -195,6 +200,7 @@ const DEFAULT_SHOPS = [
     id: 'nobbis',
     name: 'Nobbis Tabakwelt',
     url: 'https://www.nobbis-tabakwelt.de/herkunft/kuba/',
+    verify_details: true,
     extra_urls: [
       'https://www.nobbis-tabakwelt.de/herkunft/kuba/page/2/',
       'https://www.nobbis-tabakwelt.de/herkunft/kuba/page/3/',
@@ -217,6 +223,7 @@ const DEFAULT_SHOPS = [
     id: 'cigarrenversand24',
     name: 'Cigarrenversand24',
     url: 'https://www.cigarrenversand24.de/Cigarren-Welt/',
+    allow_no_price: true,
     crawl_subpages: true,
     crawl_brands: true,
     interval_min: 10
@@ -225,6 +232,7 @@ const DEFAULT_SHOPS = [
     id: 'tabakkontor',
     name: 'Tabak Kontor Leipzig',
     url: 'https://www.tabak-kontor.de/',
+    allow_no_price: true,
     crawl_subpages: true,
     crawl_brands: true,
     interval_min: 15
@@ -317,10 +325,10 @@ async function sendPush(item, isRestock) {
 }
 
 function isValidShopHtml(txt) {
-  return txt && txt.length > 600 && !/<title>403 Forbidden|<title>Access Denied|<title>Just a moment|Error 403/i.test(txt);
+  return txt && txt.length > 500 && !/<title>403 Forbidden|<title>Access Denied|<title>Just a moment|Error 403/i.test(txt);
 }
 
-// 4-Stufen-Abruf (Browser-Fetch -> System-Curl -> Googlebot-Bypass -> Multi-Proxy)
+// 3-Stufen-Abruf (Direkt -> System-Curl -> Bewährte Proxy-Relays aus v3)
 async function fetchHtml(url) {
   const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
   try {
@@ -328,8 +336,7 @@ async function fetchHtml(url) {
       headers: {
         'User-Agent': ua,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
-        'Referer': 'https://www.google.de/'
+        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8'
       }
     }), 8500, url);
 
@@ -342,34 +349,26 @@ async function fetchHtml(url) {
     if (err.message === 'HTTP 404') throw err;
   }
 
-  // Stufe 2: System-Curl mit Google-Referer & Chrome-TLS
-  for (const testUa of [
-    ua,
-    'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-  ]) {
-    try {
-      const out = execFileSync('curl', [
-        '-sL', '--compressed', '--max-time', '8',
-        '-A', testUa,
-        '-e', 'https://www.google.de/',
-        '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        '-H', 'Accept-Language: de-DE,de;q=0.9',
-        url
-      ], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
-      if (isValidShopHtml(out)) return out;
-    } catch (e) {}
-  }
+  // Stufe 2: System-Curl
+  try {
+    const out = execFileSync('curl', [
+      '-sL', '--compressed', '--max-time', '8',
+      '-A', ua,
+      '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      '-H', 'Accept-Language: de-DE,de;q=0.9',
+      url
+    ], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    if (isValidShopHtml(out)) return out;
+  } catch (e) {}
 
-  // Stufe 3: Proxy-Relays für hart gesperrte US-Rechenzentrums-IPs (z.B. Zigarrenschachtel)
+  // Stufe 3: Proxy-Relays (mit kurzer Pause gegen Rate-Limits bei 403-Shops)
+  await new Promise(r => setTimeout(r, 350));
   for (const proxyUrl of [
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
   ]) {
     try {
-      const pRes = await withHardTimeout(fetch(proxyUrl, {
-        headers: { 'User-Agent': ua }
-      }), 9000, 'Proxy');
+      const pRes = await withHardTimeout(fetch(proxyUrl, { headers: { 'User-Agent': ua } }), 9000, 'Proxy');
       if (pRes.ok) {
         const txt = await pRes.text();
         if (isValidShopHtml(txt)) return txt;
@@ -380,10 +379,11 @@ async function fetchHtml(url) {
   throw new Error('HTTP 403 / Blockiert');
 }
 
-// Wandelt versteckte HTML-Attribute (alt/title/aria-label) in sichtbaren Text um, BEVOR Tags gelöscht werden
 function htmlToVisibleAndMetaText(rawHtml) {
   if (!rawHtml) return '';
   return rawHtml
+    // Verbinde getrennte Preis-Spans wie <span>24</span><span>,50</span> vor dem Tag-Strip
+    .replace(/(\d)<\/span>\s*<span[^>]*>([.,]\d{2})/gi, '$1$2')
     .replace(/\b(?:alt|title|aria-label|data-original-title)=["']([^"']+)["']/gi, ' $1 ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
@@ -395,58 +395,88 @@ function htmlToVisibleAndMetaText(rawHtml) {
 
 function extractPrice(text) {
   if (!text) return null;
-  const mAfter = text.match(/(\d{1,4}(?:[.,]\d{3})*[.,]\d{2})\s*\*?\s*(?:€|EUR\b)/i);
+  const cleaned = text.replace(/(\d)\s+([.,]\d{2})\s*(?:€|EUR)/g, '$1$2 €');
+  const mAfter = cleaned.match(/(\d{1,4}(?:[.,]\d{3})*[.,]\d{2})\s*\*?\s*(?:€|EUR\b)/i);
   if (mAfter) return `${mAfter[1].replace('.', ',')} €`;
-  const mBefore = text.match(/(?:€|EUR)\s*(\d{1,4}[.,]\d{2})/i);
+  const mBefore = cleaned.match(/(?:€|EUR)\s*(\d{1,4}[.,]\d{2})/i);
   if (mBefore) return `${mBefore[1].replace('.', ',')} €`;
   return null;
 }
 
-// Prüft sowohl den sichtbaren Text als auch HTML-Klassen & Ampel-Icons auf echten Lagerbestand
-function evaluateStockStatus(rawBefore, rawAfter, beforeText, fullCardText, shop, isTabacstoreNoPrice) {
+// Prüft auf der Produkt-Detailseite (wie beim echten Klick), ob der Artikel wirklich lieferbar ist!
+async function verifyProductDetail(item) {
+  try {
+    const html = await fetchHtml(item.url);
+    const mainPart = html
+      .replace(/<(nav|footer|script|style|noscript)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+      .split(/ähnliche\s+produkte|kunden\s+kauften\s+auch|dazu\s+passend|related\s+products|cross-selling/i)[0];
+
+    // Preis nachladen, falls auf der Übersichtsseite "Auf Lager" oder "Ausführung wählen" stand
+    if (!item.price || item.price === 'Auf Lager' || item.price === 'Ausverkauft') {
+      const p = extractPrice(htmlToVisibleAndMetaText(mainPart));
+      if (p) item.price = p;
+    }
+
+    // 1. Offizieller Schema.org / Microdata / JSON-LD Standard (Shopware, JTL, Oxid, WooCommerce)
+    const hasSchemaInStock = /schema\.org\/InStock|"availability"\s*:\s*"[^"]*InStock"/i.test(html);
+    const hasSchemaOutOfStock = /schema\.org\/OutOfStock|schema\.org\/SoldOut|schema\.org\/Discontinued|"availability"\s*:\s*"[^"]*(?:OutOfStock|SoldOut)"/i.test(html);
+
+    if (hasSchemaOutOfStock && !hasSchemaInStock) return false;
+    if (hasSchemaInStock && !hasSchemaOutOfStock) return true;
+
+    // 2. Speziell für Cigarworld (hat auf Detailseiten mehrere Gebinde-Zeilen)
+    if (item.shop_id === 'cigarworld') {
+      const hasCwBuy = /in\s+den\s+warenkorb|sofort\s+versandfertig|auf\s+lager|lieferbar/i.test(mainPart) &&
+                       !/alle\s+variationen\s+ausverkauft/i.test(mainPart);
+      const cwAllSoldOut = !/in\s+den\s+warenkorb|warenkorb\s+legen/i.test(mainPart) &&
+                           /nicht\s+lieferbar|ausverkauft|vergriffen/i.test(mainPart);
+      if (cwAllSoldOut) return false;
+      return hasCwBuy;
+    }
+
+    const vis = htmlToVisibleAndMetaText(mainPart);
+    const hasBuyBtn = /in\s+den\s+warenkorb|warenkorb\s+legen|add-to-cart|btn-buy|jetzt\s+kaufen/i.test(mainPart) &&
+                      !/btn-buy[^>]*disabled|add-to-cart[^>]*disabled/i.test(mainPart);
+    const hasGreenText = /sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager|versandfertig|lieferbar\s+in\s+\d|ampel[_-]?gruen|status[_-]?1|status[_-]?green/i.test(mainPart + ' ' + vis);
+    const hasRedText = /nicht\s+lieferbar|zur\s*zeit\s+nicht|derzeit\s+nicht|momentan\s+nicht|nicht\s+verf[üu]gbar|nicht\s+auf\s+lager|ausverkauft|vergriffen|liefertermin\s+unbekannt|ampel[_-]?rot|status[_-]?0|status[_-]?red/i.test(mainPart + ' ' + vis);
+
+    if (hasRedText && !hasGreenText && !hasBuyBtn) return false;
+    if (hasGreenText || hasBuyBtn) return true;
+    return false;
+  } catch (e) {
+    // Bei Verbindungsabbruch im Zweifel den Status der Übersichtsseite behalten
+    return item.in_stock;
+  }
+}
+
+function evaluateOverviewStock(rawBefore, rawAfter, beforeText, fullCardText, shop, isTabacstoreNoPrice) {
   if (isTabacstoreNoPrice) return false;
 
   const combinedRaw = `${rawBefore} ${rawAfter}`;
   const cleanForStock = fullCardText.replace(/hkr\s+alles:\s*(?:True|False),\s*Teil:\s*(?:AllesLieferbar|True|F)\.?/gi, ' ');
 
-  // 1. Eindeutige HTML-Klassen oder Ampel-Bilder für "Ausverkauft" (Paul Bugge, Noblego, Cigarworld, Shopware, WooCommerce)
   const rawSoldOutSignal = /(?:class|id)=["'][^"']*\b(?:out-of-stock|not-available|is-out-of-stock|sold-out|soldout|nostock|no-stock|status-red|status-0|status_0|ampel-rot|ampel_rot|delivery-not-available|badge-soldout)\b|(?:ampel[_-]?rot|status[_-]?0|icon[_-]?red|out[_-]?of[_-]?stock)\.(?:gif|png|svg|jpg)/i.test(rawAfter);
-
-  // 2. Eindeutige HTML-Signale für "Kaufen / Auf Lager"
   const rawBuySignal = /in\s+den\s+warenkorb|add-to-cart|btn-buy|in-stock|is-in-stock|status-green|status-1|status_1|ampel-gruen|ampel_gruen|sofort\s+lieferbar|sofort\s+verf[üu]gbar|auf\s+lager/i.test(combinedRaw);
 
-  // 3. Dalay & Zigarrenschachtel Vor-Banner ("Nicht lieferbar" / "nicht verfügbar" direkt über dem Produktnamen)
   const cleanBefore = beforeText.replace(/hkr\s+alles:[^.]*\./gi, '').trim();
   if (/^(?:[^a-zäöüß]*)(?:nicht\s+lieferbar|nicht\s+verf[üu]gbar|demn[äa]chst\s+bei\s+uns|momentan\s+nicht)/i.test(cleanBefore)) {
     return false;
   }
 
-  // 4. Text-Prüfung (inkl. entpackter alt/title-Attribute von Paul Bugge, Noblego & Co.)
   const soldOutTextRegex = /nicht\s+lieferbar|zur\s*zeit\s+nicht|derzeit\s+nicht|aktuell\s+nicht|momentan\s+nicht|nicht\s+verf[üu]gbar|nicht\s+auf\s+lager|leider\s+ausverkauft|ausverkauft|vergriffen|sold\s*out|out\s*of\s*stock|demn[äa]chst\s+bei\s+uns|liefertermin\s+unbekannt|wird\s+nachbestellt|artikel\s+ist\s+ausverkauft|bald\s+wieder\s+verf/i;
   const inStockTextRegex = /auf\s+lager|einige\s+variationen\s+verf[üu]gbar|sofort\s+verf[üu]gbar|sofort\s+lieferbar|versandfertig|in\s+den\s+warenkorb|lieferbar\s+in\s+\d/i;
 
-  if (rawSoldOutSignal && !inStockTextRegex.test(cleanForStock)) {
-    return false;
-  }
-  if (soldOutTextRegex.test(cleanForStock) && !inStockTextRegex.test(cleanForStock)) {
-    return false;
-  }
-
-  // 5. Bei Wolsdorff, Noblego & Paul Bugge muss ein echtes Kaufsignal (Warenkorb/Grün/Auf Lager) in der Karte existieren
-  if (shop.require_buy_signal && !rawBuySignal && !inStockTextRegex.test(cleanForStock)) {
-    return false;
-  }
+  if (rawSoldOutSignal && !inStockTextRegex.test(cleanForStock)) return false;
+  if (soldOutTextRegex.test(cleanForStock) && !inStockTextRegex.test(cleanForStock)) return false;
+  if (shop.require_buy_signal && !rawBuySignal && !inStockTextRegex.test(cleanForStock)) return false;
 
   return true;
 }
 
 function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
   const found = [];
-
-  // Wichtig: <header> NICHT löschen (da WooCommerce wie Pipe House / Zigarrentraum Produktkarten in <header> packt)
   const cleanHtml = html.replace(/<(nav|footer|script|style|noscript|svg)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
 
-  // Erkenne, ob wir uns bereits auf einer spezifischen kubanischen Markenseite befinden (z.B. /cohiba/ oder /partagas/)
   const titleTagMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const h1TagMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const pageBrand = detectBrand(decodeURIComponent(pageUrl)) ||
@@ -481,7 +511,7 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
     const prevGroup = groups[groups.length - 1];
     if (prevGroup && prevGroup.url === fullUrl && (match.index - prevGroup.endIndex) < 1500) {
       prevGroup.endIndex = match.index + match[0].length;
-      if (innerText.length > prevGroup.bestText.length && !/^(details|mehr|ansehen|zum produkt|weiterlesen)$/i.test(innerText)) {
+      if (innerText.length > prevGroup.bestText.length && !/^(details|mehr|ansehen|zum produkt|weiterlesen|optionen wählen)$/i.test(innerText)) {
         prevGroup.bestText = innerText;
       }
       prevGroup.combinedText += ' ' + candidateText;
@@ -496,7 +526,6 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
     }
   }
 
-  // Filtere Produkt-Anker (nutzt pageBrand, falls auf einer Marken-Unterseite die Marke nicht in jedem Link wiederholt wird)
   const productGroups = groups.filter(g => {
     const brand = detectBrand(g.combinedText) || detectBrand(decodeURIComponent(g.url)) || pageBrand;
     if (!brand) return false;
@@ -524,7 +553,6 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
     }
 
     const fullCardText = `${beforeText} ${curr.combinedText} ${afterText}`.trim();
-
     if (/dominikanische\s+republik|herkunft:\s*(?:nicaragua|honduras|dominikan)|feuerzeug|aschenbecher|zigarrenetui|lederetui|cutter/i.test(fullCardText)) continue;
 
     const brand = detectBrand(curr.combinedText) || detectBrand(decodeURIComponent(curr.url)) || detectBrand(fullCardText) || pageBrand;
@@ -532,9 +560,9 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
 
     const price = extractPrice(afterText) || extractPrice(curr.combinedText);
     const isTabacstoreNoPrice = (shop.id === 'tabacstore' && !price && /kuba/i.test(afterText));
-    if (!price && !isTabacstoreNoPrice) continue;
+    if (!price && !isTabacstoreNoPrice && !shop.allow_no_price) continue;
 
-    const inStock = evaluateStockStatus(rawBefore, rawAfter, beforeText, fullCardText, shop, isTabacstoreNoPrice);
+    const inStock = evaluateOverviewStock(rawBefore, rawAfter, beforeText, fullCardText, shop, isTabacstoreNoPrice);
 
     let cleanTitle = curr.bestText || curr.combinedText;
     if (!detectBrand(cleanTitle)) {
@@ -556,8 +584,8 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
       shop_name: shop.name,
       title: cleanTitle.slice(0, 130),
       brand,
-      price: price || 'Ausverkauft',
-      format: /kiste|box|25er|20er|10er|50er|cabinet|slb|sbn|\b25\s*'/i.test(cleanTitle + ' ' + afterText) ? 'Kiste / Box' : 'Einzel / Verfügbar',
+      price: price || (inStock ? 'Auf Lager' : 'Ausverkauft'),
+      format: /kiste|box|25er|20er|10er|50er|cabinet|slb|sbn|\b25\s*'/i.test(cleanTitle + ' ' + afterText) ? 'Kiste / Box' : 'Einzel / Sonstiges',
       edition_type: detectEdition(cleanTitle + ' ' + afterText),
       in_stock: inStock,
       url: curr.url
@@ -567,7 +595,7 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
   return found;
 }
 
-async function scrapeShop(shopConfig) {
+async function scrapeShop(shopConfig, existingMap) {
   const items = [];
   const baseOrigin = new URL(shopConfig.url).origin;
 
@@ -607,7 +635,7 @@ async function scrapeShop(shopConfig) {
               title: fullTitle.slice(0, 130),
               brand,
               price: `${parseFloat(v.price).toFixed(2).replace('.', ',')} €`,
-              format: /kiste|box|25|20|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Einzel / Verfügbar',
+              format: /kiste|box|25|20|10|50|cabinet/i.test(fullTitle) ? 'Kiste / Box' : 'Einzel / Sonstiges',
               edition_type: detectEdition(fullTitle),
               in_stock: Boolean(v.available),
               url: `${baseOrigin}/products/${p.handle}`
@@ -619,7 +647,7 @@ async function scrapeShop(shopConfig) {
     return { items, pagesScanned };
   }
 
-  // 2. HTML-Hauptseite + Marken-/Paginierungs-Seiten abrufen
+  // 2. HTML-Hauptseite + Unterseiten abrufen
   const seenUrls = new Set();
   const mainHtml = await fetchHtml(shopConfig.url);
   items.push(...parseProductsFromHtml(mainHtml, shopConfig, baseOrigin, seenUrls, shopConfig.url));
@@ -663,12 +691,39 @@ async function scrapeShop(shopConfig) {
     }
   }
 
+  // 3. STUFE 2 (Detailseiten-Verifikation): Prüft Kandidaten direkt auf ihrer Produktseite
+  if (shopConfig.verify_details) {
+    const toVerify = items.filter(it => {
+      if (!it.in_stock) return false;
+      const prev = existingMap.get(it.id);
+      // Prüfe alle neuen Artikel, Restock-Kandidaten oder bisher als verfügbar gelistete Artikel
+      return !prev || prev.in_stock === false || prev.in_stock === true;
+    }).slice(0, 60);
+
+    for (let i = 0; i < toVerify.length; i += 6) {
+      const batch = toVerify.slice(i, i + 6);
+      await Promise.allSettled(batch.map(async (it) => {
+        it.in_stock = await verifyProductDetail(it);
+      }));
+    }
+    // Falls Cigarworld > 60 Treffer hat, nicht ungeprüft als "verfügbar" durchwinken
+    if (toVerify.length === 60) {
+      const verifiedSet = new Set(toVerify.map(x => x.id));
+      for (const it of items) {
+        if (it.in_stock && !verifiedSet.has(it.id)) {
+          const prev = existingMap.get(it.id);
+          it.in_stock = prev ? Boolean(prev.in_stock) : false;
+        }
+      }
+    }
+  }
+
   return { items, pagesScanned };
 }
 
 async function run() {
   const startTime = Date.now();
-  console.log('=== Starte Habanos Scout (Anchor-Boundary Engine v4) ===');
+  console.log('=== Starte Habanos Scout (Deep-Verify Engine v5) ===');
 
   const dbShopsPayload = DEFAULT_SHOPS.map(s => ({
     id: s.id, name: s.name, url: s.url, interval_min: s.interval_min, active: true
@@ -679,16 +734,19 @@ async function run() {
     body: JSON.stringify(dbShopsPayload)
   });
 
-  const existing = await sbFetch('releases?select=id,in_stock,price');
+  const existing = await sbFetch('releases?select=id,shop_id,in_stock,price');
   const existingMap = new Map((existing || []).map(r => [r.id, r]));
-  const isFirstInit = existingMap.size === 0;
+  const initializedShops = new Set((existing || []).map(r => r.shop_id));
+
   const now = new Date();
   const weekday = (now.getDay() + 6) % 7;
   const hour = now.getHours();
 
   for (const shopConfig of DEFAULT_SHOPS) {
     try {
-      const { items: foundItems, pagesScanned } = await scrapeShop(shopConfig);
+      // Wenn dieser Shop vorher noch 0 Einträge in Supabase hatte -> Erst-Einlesung (kein Push-Spam!)
+      const shopIsInitialized = initializedShops.has(shopConfig.id);
+      const { items: foundItems, pagesScanned } = await scrapeShop(shopConfig, existingMap);
       const toUpsert = [];
       let pushCount = 0;
       let availableCount = 0;
@@ -705,18 +763,31 @@ async function run() {
           toUpsert.push(payload);
           existingMap.set(item.id, payload);
 
-          if (!isFirstInit && item.in_stock && pushCount < 4) {
-            await sendPush(payload, false);
-            pushCount++;
+          // Vor jedem Push noch einmal verbindlich die Produktseite prüfen!
+          if (shopIsInitialized && item.in_stock && pushCount < 4) {
+            const reallyAvailable = shopConfig.type === 'shopify' ? true : await verifyProductDetail(payload);
+            if (reallyAvailable) {
+              await sendPush(payload, false);
+              pushCount++;
+            } else {
+              payload.in_stock = false;
+              payload.drop_type = 'AUSVERKAUFT';
+              availableCount = Math.max(0, availableCount - 1);
+            }
           }
         } else if (prev.in_stock === false && item.in_stock === true) {
-          const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
-          toUpsert.push(payload);
-          existingMap.set(item.id, payload);
-
-          if (pushCount < 5) {
-            await sendPush(payload, true);
-            pushCount++;
+          // Echter Restock: Vor dem Push zwingend auf der Detailseite gegenprüfen!
+          const reallyAvailable = shopConfig.type === 'shopify' ? true : await verifyProductDetail(item);
+          if (reallyAvailable) {
+            const payload = { ...item, drop_type: 'RESTOCK', in_stock: true, weekday, hour, found_at: now.toISOString() };
+            toUpsert.push(payload);
+            existingMap.set(item.id, payload);
+            if (pushCount < 5) {
+              await sendPush(payload, true);
+              pushCount++;
+            }
+          } else {
+            availableCount = Math.max(0, availableCount - 1);
           }
         } else if (prev.in_stock === true && item.in_stock === false) {
           const payload = { ...item, drop_type: 'AUSVERKAUFT', in_stock: false, weekday, hour, found_at: now.toISOString() };
