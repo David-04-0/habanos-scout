@@ -194,16 +194,18 @@ const DEFAULT_SHOPS = [
     id: 'pipehouse',
     name: 'Pipe House',
     url: 'https://pipehouse.de/cigarren/kubanische-zigarren/',
-    product_url_must_match: /\/shop\//i,
+    allow_no_price: true,
+    require_explicit_brand: true,
     verify_details: true,
     crawl_subpages: true,
-    subpage_pattern: /\/cigarren\/(?:kubanische-zigarren\/page\/\d+|(?:cohiba|montecristo|partagas|romeo-y-julieta|h-upmann|hoyo-de-monterrey|trinidad|bolivar|ramon-allones|punch|quai-d-?orsay|por-larranaga|juan-lopez|cuaba|diplomaticos|san-cristobal|el-rey-del-mundo|saint-luis-rey|sancho-panza|vegueros|quintero|jose-l-piedra|flor-de-cano|fonseca|rafael-gonzalez|vegas-robaina|la-gloria-cubana)[a-z0-9-]*)\/?$/i,
+    subpage_pattern: /\/(?:cigarren\/(?:kubanische-zigarren\/page\/\d+|(?:cohiba|montecristo|partagas|romeo-y-julieta|h-upmann|hoyo-de-monterrey|trinidad|bolivar|ramon-allones|punch|quai-d-?orsay|por-larranaga|juan-lopez|cuaba|diplomaticos|san-cristobal|el-rey-del-mundo|saint-luis-rey|sancho-panza|vegueros|quintero|jose-l-piedra|flor-de-cano|fonseca|rafael-gonzalez|vegas-robaina|la-gloria-cubana)[a-z0-9-]*)|herkunft\/cuba\/(?:page\/\d+)?)\/?$/i,
     extra_urls: [
       'https://pipehouse.de/cigarren/kubanische-zigarren/page/2/',
       'https://pipehouse.de/cigarren/kubanische-zigarren/page/3/',
       'https://pipehouse.de/cigarren/kubanische-zigarren/page/4/',
-      'https://pipehouse.de/cigarren/kubanische-zigarren/page/5/',
-      'https://pipehouse.de/cigarren/kubanische-zigarren/page/6/',
+      'https://pipehouse.de/herkunft/cuba/',
+      'https://pipehouse.de/herkunft/cuba/page/2/',
+      'https://pipehouse.de/herkunft/cuba/page/3/',
       'https://pipehouse.de/cigarren/cohiba-zigarren/',
       'https://pipehouse.de/cigarren/montecristo-zigarren/',
       'https://pipehouse.de/cigarren/partagas-zigarren/',
@@ -277,6 +279,8 @@ const NON_CIGAR_URL_REGEX = /(?:pfeifentabak|pfeifen-?tabak|(?:^|[-_\/])pfeifen?
 const NON_CIGAR_TITLE_REGEX = /\b(?:pfeifentabak|pfeifen-?tabak|tabakpfeife|pfeifenreiniger|pfeifenfilter|pfeifenstopfer|bruy[eè]re|meerschaum|pipe\s+tobacco|loose\s+cut|ready\s+rubbed|broken\s+flake|virginia\s+flake|navy\s+flake|flake|black\s+cavendish|cavendish|latakia|perique|burley|curly\s+cut|cube\s+cut|ribbon\s+cut|scottish\s+mixture|danish\s+mixture|english\s+mixture|aromatic\s+mixture|mixture|schnupftabak|snuff|snus|kautabak|drehtabak|stopftabak|feinschnitt|shisha-?tabak|wasserpfeifentabak|zigaretten|e-zigarette|aschenbecher|feuerzeug|zigarrenetui|lederetui|zigarrenschneider|zigarrenbohrer|cutter|zigarillos?|cigarillos?|single\s+malt|whisky|whiskey)\b|(?:^|[\s(])(?:30|40|50|100|150|200|250)\s*g\b|(?:dose|pouch|beutel)\s*(?:30|40|50|100|200|250)\s*g/i;
 
 const NON_CIGAR_CARD_REGEX = /\b(?:pfeifentabak|pfeifen-?tabak|tabakpfeife|pfeifenreiniger|pfeifenfilter|pfeifenstopfer|pipe\s+tobacco|loose\s+cut|ready\s+rubbed|broken\s+flake|virginia\s+flake|navy\s+flake|black\s+cavendish|cavendish|latakia|perique|burley|curly\s+cut|cube\s+cut|ribbon\s+cut|scottish\s+mixture|danish\s+mixture|english\s+mixture|aromatic\s+mixture|schnupftabak|snus|kautabak|drehtabak|stopftabak|feinschnitt|shisha-?tabak|wasserpfeifentabak|e-zigarette|aschenbecher|feuerzeug|zigarrenetui|lederetui|zigarrenschneider|zigarrenbohrer|cutter)\b|dominikanische\s+republik|herkunft:\s*(?:nicaragua|honduras|dominikan)/i;
+
+const NON_CIGAR_BREADCRUMB_REGEX = /\b(?:pfeifentabak|tabakpfeifen?|pfeifenfilter|pfeifenreiniger|zigarillos?|cigarillos?|spirituosen|whisky|whiskey|zubeh[öo]r|accessoires|shisha|schnupftabak)\b/i;
 
 function makeItemId(shopId, url) {
   const clean = url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
@@ -498,7 +502,7 @@ function extractPrice(text) {
   return null;
 }
 
-// Prüft auf der Produkt-Detailseite sowohl den Lagerbestand als auch, ob es wirklich eine Zigarre ist
+// Prüft auf der Produkt-Detailseite sowohl den Lagerbestand als auch, ob es wirklich eine kubanische Zigarre ist
 async function verifyProductDetail(item) {
   if (NON_CIGAR_URL_REGEX.test(item.url) || NON_CIGAR_TITLE_REGEX.test(item.title)) {
     return { inStock: false, rejected: true };
@@ -507,7 +511,7 @@ async function verifyProductDetail(item) {
   try {
     const html = await fetchHtml(item.url);
 
-    // 1. Produkttyp-Prüfung anhand von <h1> und dem Produktnamen im <title> (ohne Shop-Suffix)
+    // 1. Produkttyp-Prüfung anhand von <h1>, <title>-Kopf und Breadcrumbs/Kategorien
     const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
     const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const h1Text = h1Match ? htmlToVisibleAndMetaText(h1Match[1]) : '';
@@ -517,6 +521,23 @@ async function verifyProductDetail(item) {
 
     if (NON_CIGAR_TITLE_REGEX.test(h1Text) || NON_CIGAR_TITLE_REGEX.test(pageTitleHead)) {
       return { inStock: false, rejected: true };
+    }
+
+    const breadcrumbMatches = html.match(/<(?:nav|div|span|ul|ol)[^>]*class=["'][^"']*(?:breadcrumb|posted_in)[^"']*["'][^>]*>[\s\S]{0,1200}?<\/(?:nav|div|span|ul|ol)>/gi) || [];
+    const breadcrumbText = breadcrumbMatches.map(htmlToVisibleAndMetaText).join(' ');
+    if (breadcrumbText && NON_CIGAR_BREADCRUMB_REGEX.test(breadcrumbText)) {
+      return { inStock: false, rejected: true };
+    }
+
+    // Bei Pipe House muss die echte Zielseite (<h1>, <title> oder URL) zwingend eine kubanische Marke enthalten
+    if (item.shop_id === 'pipehouse' && (h1Text || pageTitleHead)) {
+      const detailBrand = detectBrand(`${h1Text} ${pageTitleHead} ${decodeURIComponent(item.url)}`);
+      if (!detailBrand) {
+        return { inStock: false, rejected: true };
+      }
+      if (h1Text.length >= 5 && detectBrand(h1Text)) {
+        item.title = h1Text.slice(0, 130);
+      }
     }
 
     // 2. Schema.org-Check VOR dem Entfernen von <script>-Tags (da JSON-LD in <script> liegt)
@@ -591,6 +612,7 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
   const pageBrand = detectBrand(decodeURIComponent(pageUrl)) ||
                     detectBrand(titleTagMatch ? titleTagMatch[1] : '') ||
                     detectBrand(h1TagMatch ? h1TagMatch[1] : '');
+  const effectivePageBrand = shop.require_explicit_brand ? null : pageBrand;
 
   const linkRegex = /<a\b([^>]*?\bhref=["']([^"']+)["'][^>]*)>([\s\S]*?)<\/a>/gi;
   const groups = [];
@@ -612,8 +634,8 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
 
     if (/[?&]p=\d+|_s\d+$|\/page\/\d+/i.test(fullUrl)) continue;
     if (NON_CIGAR_URL_REGEX.test(fullUrl)) continue;
-    if (shop.product_url_must_match && !shop.product_url_must_match.test(fullUrl)) continue;
     if (shop.id === 'cigarworld' && !/_\d+$/.test(fullUrl)) continue;
+    if (shop.id === 'pipehouse' && (shop.subpage_pattern.test(fullUrl) || /\/cigarren\/kubanische-zigarren\/?$|\/herkunft\/cuba\/?$/i.test(fullUrl))) continue;
 
     const innerText = htmlToVisibleAndMetaText(innerHtml);
     const titleAttrMatch = attrs.match(/title=["']([^"']+)["']/i);
@@ -639,9 +661,9 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
 
   const productGroups = groups.filter(g => {
     if (NON_CIGAR_TITLE_REGEX.test(g.combinedText)) return false;
-    const brand = detectBrand(g.combinedText) || detectBrand(decodeURIComponent(g.url)) || pageBrand;
+    const brand = detectBrand(g.combinedText) || detectBrand(decodeURIComponent(g.url)) || effectivePageBrand;
     if (!brand) return false;
-    const stripped = g.combinedText.replace(/zigarren|kubanische|kuba|details|jetzt kaufen|weiterlesen/gi, '').trim();
+    const stripped = g.combinedText.replace(/zigarren|cigarren|kubanische|kuba|details|jetzt kaufen|weiterlesen/gi, '').trim();
     return stripped.length >= 4;
   });
 
@@ -667,7 +689,9 @@ function parseProductsFromHtml(html, shop, baseOrigin, seenUrls, pageUrl = '') {
     const fullCardText = `${beforeText} ${curr.combinedText} ${afterText}`.trim();
     if (NON_CIGAR_CARD_REGEX.test(`${curr.combinedText} ${afterText}`)) continue;
 
-    const brand = detectBrand(curr.combinedText) || detectBrand(decodeURIComponent(curr.url)) || detectBrand(fullCardText) || pageBrand;
+    const brand = shop.require_explicit_brand
+      ? (detectBrand(curr.combinedText) || detectBrand(decodeURIComponent(curr.url)))
+      : (detectBrand(curr.combinedText) || detectBrand(decodeURIComponent(curr.url)) || detectBrand(fullCardText) || effectivePageBrand);
     if (!brand) continue;
 
     const price = extractPrice(afterText) || extractPrice(curr.combinedText);
@@ -846,7 +870,7 @@ async function scrapeShop(shopConfig, existingMap) {
 
 async function run() {
   const startTime = Date.now();
-  console.log('=== Starte Habanos Scout (Engine v8 - Pure Cigars Filter) ===');
+  console.log('=== Starte Habanos Scout (Engine v8.1 - Pure Cigars & PipeHouse Fix) ===');
 
   const dbShopsPayload = DEFAULT_SHOPS.map(s => ({
     id: s.id, name: s.name, url: s.url, interval_min: s.interval_min, active: true
